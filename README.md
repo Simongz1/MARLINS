@@ -15,6 +15,22 @@ Code maintained by:
 
 [Simon Gonzalez-Zapata](https://github.com/Simongz1) - PhD Student in Mechanical Engineering, Purdue University
 
+## Dependecy versions:
+
++ MOOSE Version: git commit 72da5d58f0 on 2024-02-27
++ LibMesh Version: 31948b018e9bea83c138035e952d48065458ba4a
++ PETSc Version: 3.20.3
++ WASP Version: 4.2.0
++ LibTorch Version: 2.1.0 + cpu
++ SLEPc Version: 3.20.1
++ Gmsh Version: 4.13.1
+
+## Build and run times
+
++ Build time: $\leq$ 4 hours on HPC - Linux system [Negishi](https://www.rcac.purdue.edu/compute/negishi).
++ Compilation time: $\leq$ 1 hour FIRST COMPILE on 4 Alta CPU cores. Check system specs and hardware [here](https://www.rcac.purdue.edu/compute/negishi). $\leq$ 3 minutes following compiles.
++ Simulation runtime: This aspect strongly depends on mesh size, resolution, hardware limitations and numerical precision. Simulations on 128 to 512 CPU cores typically take $\leq$ 3 days to run. The minimum runtime achievable with reliable results is $\approx$ 6 hours.
+
 ## How to contribute?
 + Add your source files (.C) to the folder ./src/ and subfolder /kernel/ or /material/ depending on the object type
 + Add your header files (.h) to the folder ./include/ and subfolder /kernel/ or /material/ depending on the object type
