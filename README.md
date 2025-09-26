@@ -31,6 +31,46 @@ Code maintained by:
 + Compilation time: $\leq$ 1 hour FIRST COMPILE on 4 Alta CPU cores. Check system specs and hardware [here](https://www.rcac.purdue.edu/compute/negishi). $\leq$ 3 minutes following compiles.
 + Simulation runtime: This aspect strongly depends on mesh size, resolution, hardware limitations and numerical precision. Simulations on 128 to 512 CPU cores typically take $\leq$ 3 days to run. The minimum runtime achievable with reliable results is $\approx$ 6 hours.
 
+## Makefile configuration
+
+MOOSE only compiles with modules marked for compilation in the MakeFile. The app is compiled with the flag ALL_MODULE := yes active
+
+	################################## MODULES ####################################
+	# To use certain physics included with MOOSE, set variables below to
+	# yes as needed.  Or set ALL_MODULES to yes to turn on everything (overrides
+	# other set variables).
+	
+	ALL_MODULES                 := yes
+	
+	CHEMICAL_REACTIONS          := no
+	CONTACT                     := no
+	ELECTROMAGNETICS            := no
+	EXTERNAL_PETSC_SOLVER       := no
+	FLUID_PROPERTIES            := no
+	FSI                         := no
+	FUNCTIONAL_EXPANSION_TOOLS  := no
+	GEOCHEMISTRY                := no
+	HEAT_TRANSFER               := no
+	LEVEL_SET                   := no
+	MISC                        := no
+	NAVIER_STOKES               := no
+	OPTIMIZATION                := no
+	PERIDYNAMICS                := no
+	PHASE_FIELD                 := no
+	POROUS_FLOW                 := no
+	RAY_TRACING                 := no
+	REACTOR                     := no
+	RDG                         := no
+	RICHARDS                    := no
+	STOCHASTIC_TOOLS            := no
+	THERMAL_HYDRAULICS          := no
+	TENSOR_MECHANICS            := no
+	XFEM                        := no
+	
+	include $(MOOSE_DIR)/modules/modules.mk
+	###############################################################################
+
+
 ## How to contribute?
 + Add your source files (.C) to the folder ./src/ and subfolder /kernel/ or /material/ depending on the object type
 + Add your header files (.h) to the folder ./include/ and subfolder /kernel/ or /material/ depending on the object type
