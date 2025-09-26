@@ -64,6 +64,10 @@ protected:
   const ADVariableValue &_vy;
   const ADVariableValue &_ay;
 
+  //test:vector variable
+  const VectorVariableValue &_v_vect;
+  const VectorVariableValue &_a_vect;
+
   const Real _thr_a;
   const Real _thr_v;
   MaterialProperty<Real> &_v_flag;

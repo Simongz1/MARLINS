@@ -45,6 +45,8 @@ ADComputeIntPValRDXMISTERnetNSFull::validParams()
   //test: using both components of v and a to define shock call
   params.addCoupledVar("vy", "y component of velocity");
   params.addCoupledVar("ay", "y component of acceleration");
+  params.addCoupledVar("v_vect", "vector variable that stores velocity components");
+  params.addCoupledVar("a_vect", "vector variable that stores acceleration components");
   params.addRequiredParam<Real>("thr_a", "acceleration threshold");
   params.addRequiredParam<Real>("thr_v", "velocity threshold");
 
@@ -123,6 +125,9 @@ ADComputeIntPValRDXMISTERnetNSFull::ADComputeIntPValRDXMISTERnetNSFull(
     _ax(adCoupledValue("ax")),
     _vy(adCoupledValue("vy")),
     _ay(adCoupledValue("ay")),
+    //test:vector variable
+    _v_vect(coupledVectorValue("v_vect")),
+    _a_vect(coupledVectorValue("a_vect")),
 
     _thr_a(getParam<Real>("thr_a")),
     _thr_v(getParam<Real>("thr_v")),
@@ -251,22 +256,13 @@ ADComputeIntPValRDXMISTERnetNSFull::computeQpProperties()
   //ORDER 2
   //activate shock heat: call when velocity is bigger than a value 1
 
-  //test: compute magintudes of velocity and acceleration
-
-  Real vx_raw = MetaPhysicL::raw_value(_vx[_qp]);
-  Real vy_raw = MetaPhysicL::raw_value(_vy[_qp]);
-  Real ax_raw = MetaPhysicL::raw_value(_ax[_qp]);
-  Real ay_raw = MetaPhysicL::raw_value(_ay[_qp]);
-
-  Real v_mag = std::sqrt(std::pow(vx_raw, 2.) + std::pow(vy_raw, 2.));
-  Real a_mag = std::sqrt(std::pow(ax_raw, 2.) + std::pow(ay_raw, 2.));
-
   Real condition_v;
   Real condition_a;
-
+  
   if(_use_magnitude){
-    condition_v = v_mag;
-    condition_a = a_mag;
+    condition_v = _v_vect[_qp].norm();
+    condition_a = _a_vect[_qp].norm();
+
   }else{
     condition_v = std::abs(MetaPhysicL::raw_value(_vx[_qp]));
     condition_a = std::abs(MetaPhysicL::raw_value(_ax[_qp]));
@@ -277,9 +273,10 @@ ADComputeIntPValRDXMISTERnetNSFull::computeQpProperties()
     //get temperatures
     const int id_call = (_density_i[_qp]);
 
-    Real pred_shock = getTemperatures(std::abs(MetaPhysicL::raw_value(_vx[_qp])), id_call)[0];
-    Real pred_react = getTemperatures(std::abs(MetaPhysicL::raw_value(_vx[_qp])), id_call)[1];
-    Real pred_time  = getTimes(std::abs(MetaPhysicL::raw_value(_vx[_qp])), id_call);
+    //test: clamp velocity to values
+    Real pred_shock = getTemperatures(std::clamp(std::abs(MetaPhysicL::raw_value(_vx[_qp])), 0.0, 4.89), id_call)[0];
+    Real pred_react = getTemperatures(std::clamp(std::abs(MetaPhysicL::raw_value(_vx[_qp])), 0.0, 4.89), id_call)[1];
+    Real pred_time  = getTimes(std::clamp(std::abs(MetaPhysicL::raw_value(_vx[_qp])), 0.0, 4.89), id_call);
 
     //store in material property
     _temperature_mister_shock[_qp] = pred_shock;
@@ -326,7 +323,8 @@ ADComputeIntPValRDXMISTERnetNSFull::computeQpProperties()
   
   if(_use_fitted_eos){
     P_mg = _A_u * std::exp(- _R1_u * Je) + _B_u * std::exp(- _R2_u * Je);
-    P_mg += _omega_u * _rho[_qp] * _Cv[_qp] * (_T[_qp] - _T_ref) / Je;
+    //test: don't use reference temperature
+    P_mg += _omega_u * _rho[_qp] * _Cv[_qp] * (_T[_qp]) / Je;
   }
   _pressure_mg[_qp] = - P_mg; //store pressure 
 
@@ -336,7 +334,8 @@ ADComputeIntPValRDXMISTERnetNSFull::computeQpProperties()
 
   if(_use_fitted_eos){
     P_JWL = _A_r * std::exp(- _R1_r * Je) + _B_r * std::exp(- _R2_r * Je);
-    P_JWL += _omega_r * _rho[_qp] * _Cv[_qp] * (_T[_qp] - _T_ref) / Je;
+    //test: don't use reference temperature
+    P_JWL += _omega_r * _rho[_qp] * _Cv[_qp] * (_T[_qp]) / Je;
   }
   _pressure_JWL[_qp] = - P_JWL; //store
 
@@ -382,7 +381,14 @@ ADComputeIntPValRDXMISTERnetNSFull::computeQpProperties()
   //compute and declare the derivatives of each partial pressure wrt temperature to consume on PressureHS
 
   //compute shock velocity
-  _us[_qp] = ss + (_s * std::abs(MetaPhysicL::raw_value(_vx[_qp])));
+  ADReal us;
+  
+  if (_use_fitted_eos){
+    us = 4.0790 + 1.9370 * _v_vect[_qp].norm();
+  }else{
+    us = ss + (_s * _v_vect[_qp].norm());
+  }
+  _us[_qp] = us;
 }
 
 //interpolate between values

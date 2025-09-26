@@ -18,8 +18,8 @@ ADComputeMISTERnetHeat::validParams()
   params.addRequiredParam<Real>("factor","a factor multiplied to control jetting heat");
   params.addRequiredParam<Real>("heat_time_shock","time of which heat source is on");
   params.addRequiredParam<Real>("heat_time_react","time of which heat source is on");
-  params.addRequiredCoupledVar("vx", "vx");
-  params.addRequiredCoupledVar("ax", "ax");
+  params.addRequiredCoupledVar("v_vect", "v_vect");
+  params.addRequiredCoupledVar("a_vect", "a_vect");
   params.addRequiredParam<Real>("thr_v", "thr_v");
   params.addRequiredParam<Real>("thr_a", "thr_a");
   params.addRequiredParam<bool>("direct_T", "assign T predictions directly from a purely numerical source");
@@ -47,8 +47,8 @@ ADComputeMISTERnetHeat::ADComputeMISTERnetHeat(const InputParameters & parameter
     _heatrate_mister_shock(declareADProperty<Real>("heatrate_mister_shock")),
     _heatrate_mister_react(declareADProperty<Real>("heatrate_mister_react")),
     _v_flag(getMaterialProperty<Real>("v_flag")),
-    _vx(coupledValue("vx")),
-    _ax(coupledValue("ax")),
+    _v_vect(coupledVectorValue("v_vect")),
+    _a_vect(coupledVectorValue("a_vect")),
     _thr_v(getParam<Real>("thr_v")),
     _thr_a(getParam<Real>("thr_a")),
 
@@ -77,7 +77,8 @@ ADComputeMISTERnetHeat::computeQpProperties()
   if(_dynamic_tau){
     total_tau = std::max(_time_react[_qp], 1e-6);
     cutoff = total_tau;
-    tau_shock = _h / std::clamp(std::abs(_vx[_qp]), 0., 10.); //this computes the actual velocity it takes for the shock to cover an element
+    //test: checking with magnitude
+    tau_shock = _h / std::clamp(_v_vect[_qp].norm(), 0., 10.); //this computes the actual velocity it takes for the shock to cover an element
   }else{
     total_tau = _heat_time_react;
     cutoff = 1.;

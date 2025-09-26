@@ -8,7 +8,7 @@
 #include "DerivativeMaterialInterface.h"
 
 /* This class implements the Simo-Hughes style J2 plasticity */
-class ADArtVisJ2StressLIPIT
+class ADArtVisJ2StressLIPITFinite
   : public DerivativeMaterialInterface<ComputeLagrangianStressPK1>,
     public GuaranteeConsumer,
     public SingleVariableReturnMappingSolution
@@ -16,7 +16,7 @@ class ADArtVisJ2StressLIPIT
 public:
   static InputParameters validParams();
 
-  ADArtVisJ2StressLIPIT(const InputParameters & parameters);
+  ADArtVisJ2StressLIPITFinite(const InputParameters & parameters);
 
   virtual void initialSetup() override;
 
@@ -108,7 +108,18 @@ protected:
   MaterialProperty<Real> &_I3_neg;
   MaterialProperty<Real> &_elastic_energy_total;
   const Real _ep_ref;
-
+  MaterialProperty<RankTwoTensor> &_Cp_bar;
+  MaterialProperty<RankTwoTensor> &_Cp;
+  const MaterialProperty<RankTwoTensor> &_Cp_bar_old;
+  const MaterialProperty<RankTwoTensor> &_Cp_old;
+  const MaterialProperty<RankTwoTensor> &_Ep_old;
+  const MaterialProperty<RankTwoTensor> &_Ee_old;
+  MaterialProperty<RankTwoTensor> &_F_computed;
+  MaterialProperty<RankTwoTensor> &_S;
+  MaterialProperty<Real> &_HS_elastic;
+  MaterialProperty<Real> &_HS_plastic;
+  MaterialProperty<RankTwoTensor> &_C_computed;
+  const VariableValue &_h_min;
 private:
   /// @{ Helper (dummy) variables for iteratively updating the consistant tangent during return mapping
   RankFourTensor _d_be_d_F;

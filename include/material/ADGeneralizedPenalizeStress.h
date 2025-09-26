@@ -8,7 +8,7 @@
 #include "DerivativeMaterialInterface.h"
 
 /* This class implements the Simo-Hughes style J2 plasticity */
-class ADArtVisJ2StressLIPIT
+class ADGeneralizedPenalizeStress
   : public DerivativeMaterialInterface<ComputeLagrangianStressPK1>,
     public GuaranteeConsumer,
     public SingleVariableReturnMappingSolution
@@ -16,7 +16,7 @@ class ADArtVisJ2StressLIPIT
 public:
   static InputParameters validParams();
 
-  ADArtVisJ2StressLIPIT(const InputParameters & parameters);
+  ADGeneralizedPenalizeStress(const InputParameters & parameters);
 
   virtual void initialSetup() override;
 
@@ -76,7 +76,7 @@ protected:
   ////////////
 
   //fracture stuff
-  const VariableValue &_c;
+  const ADVariableValue &_c;
   const Real _l;
   MaterialProperty<Real> &_kappa;
   MaterialProperty<Real> &_L;
@@ -84,31 +84,41 @@ protected:
   const VariableValue &_gcprop;
   const Real _visco;
   const Real _kdamage;
+  //
+  ADMaterialProperty<Real> &_D;
+  //
   MaterialProperty<Real> &_Hist;
   const MaterialProperty<Real> &_Hist_old;
 
-  MaterialProperty<Real> &_elastic_energy;
+  ADMaterialProperty<Real> &_elastic_energy;
   MaterialProperty<Real> &_delastic_energydc;
   MaterialProperty<Real> &_d2elastic_energyd2c;
   MaterialProperty<Real> &_dstress_dc;
 
-  MaterialProperty<RankTwoTensor> &_sigma;
-  MaterialProperty<Real> &_sigma_pressure;
-  MaterialProperty<RankTwoTensor> &_sigma_dev;
-
-  MaterialProperty<RankTwoTensor> &_sigma_pos;
-  MaterialProperty<RankTwoTensor> &_sigma_neg;
-  MaterialProperty<Real> &_W;
-  MaterialProperty<Real> &_Wpos;
-  MaterialProperty<Real> &_Wneg;
+  MaterialProperty<RankTwoTensor> &_pk1_pos;
+  MaterialProperty<RankTwoTensor> &_pk1_neg;
+  ADMaterialProperty<Real> &_W;
+  ADMaterialProperty<Real> &_Wpos;
+  ADMaterialProperty<Real> &_Wneg;
   //invariants for debugging
-  MaterialProperty<Real> &_I1_pos;
-  MaterialProperty<Real> &_I3_pos;
-  MaterialProperty<Real> &_I1_neg;  
-  MaterialProperty<Real> &_I3_neg;
-  MaterialProperty<Real> &_elastic_energy_total;
-  const Real _ep_ref;
 
+  ADMaterialProperty<Real> &_elastic_energy_total;
+  const Real _ep_ref;
+  MaterialProperty<RankTwoTensor> &_Cp_bar;
+  MaterialProperty<RankTwoTensor> &_Cp;
+  const MaterialProperty<RankTwoTensor> &_Cp_bar_old;
+  const MaterialProperty<RankTwoTensor> &_Cp_old;
+  const MaterialProperty<RankTwoTensor> &_Ep_old;
+  const MaterialProperty<RankTwoTensor> &_Ee_old;
+  MaterialProperty<RankTwoTensor> &_F_computed;
+  MaterialProperty<RankTwoTensor> &_S;
+  ADMaterialProperty<Real> &_HS_elastic;
+  ADMaterialProperty<Real> &_HS_plastic;
+  MaterialProperty<RankTwoTensor> &_C_computed;
+
+  //EOS stuff
+  const ADMaterialProperty<Real> &_pressure_total;
+  const ADVariableValue &_Y_unreacted;
 private:
   /// @{ Helper (dummy) variables for iteratively updating the consistant tangent during return mapping
   RankFourTensor _d_be_d_F;

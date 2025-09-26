@@ -28,21 +28,21 @@ ADVisHSLIPIT::ADVisHSLIPIT(const InputParameters & parameters)
     _Fe(getMaterialProperty<RankTwoTensor>("Fe")),
     _Fe_old(getMaterialPropertyOld<RankTwoTensor>("Fe")),
     _Tref(getParam<Real>("reference_temperature")),
-    _Cijkl(getMaterialProperty<RankFourTensor>("elasticity_tensor"))
+    _Cijkl(getMaterialProperty<RankFourTensor>("elasticity_tensor")),
+    _S(getMaterialProperty<RankTwoTensor>("S")),
+    _HS_plastic(getMaterialProperty<Real>("HS_plastic")),
+    _C_computed(getMaterialProperty<RankTwoTensor>("C_computed"))
 {}
 
 ADReal
 ADVisHSLIPIT::computeQpResidual()
 {
   RankTwoTensor I2(RankTwoTensor::initIdentity);
-  RankTwoTensor PK2 = _F[_qp].det() * _F[_qp].inverse() * _sigma[_qp] * _F[_qp].inverse().transpose();
-  ADReal q_plastic = _beta_p * std::max(PK2.doubleContraction(_Ep_dot[_qp]), 0.);
+  ADReal q_plastic = _beta_p * _HS_plastic[_qp];
 
   //include heating due to compression
   Real K = ElasticityTensorTools::getIsotropicBulkModulus(_Cijkl[_qp]);
-  Real J_dot = (_Fe[_qp].det() - _Fe_old[_qp].det()) / _dt;
-  RankTwoTensor C = _F[_qp].transpose() * _F[_qp];
-  ADReal q_compression = - _beta_comp * K * _alpha[_qp] * (_u[_qp]) * (C.inverse().doubleContraction(_Ee_dot[_qp]));
+  ADReal q_compression = - _beta_comp * K * _alpha[_qp] * (_u[_qp]) * (_C_computed[_qp].inverse().doubleContraction(_Ee_dot[_qp]));
 
-  return - (q_plastic + q_compression) * _test[_i][_qp];
+  return - (q_plastic + std::max(q_compression, 0.)) * _test[_i][_qp];
 }

@@ -31,4 +31,7 @@ private:
   const MaterialProperty<RankTwoTensor> &_Fe_old;
   const Real _Tref;
   const MaterialProperty<RankFourTensor> &_Cijkl;
+  const MaterialProperty<RankTwoTensor> &_S;
+  const MaterialProperty<Real> &_HS_plastic;
+  const MaterialProperty<RankTwoTensor> &_C_computed;
 };

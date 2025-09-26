@@ -22,7 +22,8 @@ catApp::~catApp() {}
 void 
 catApp::registerAll(Factory & f, ActionFactory & af, Syntax & s)
 {
-  ModulesApp::registerAllObjects<catApp>(f, af, s);
+  Moose::registerAll(f, af, s);
+  ModulesApp::registerAll(f, af, s);
   Registry::registerObjectsTo(f, {"catApp"});
   Registry::registerActionsTo(af, {"catApp"});
 

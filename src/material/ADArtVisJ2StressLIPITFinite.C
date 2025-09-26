@@ -1,9 +1,9 @@
-#include "ADArtVisJ2StressLIPIT.h"
+#include "ADArtVisJ2StressLIPITFinite.h"
 
-registerMooseObject("catApp", ADArtVisJ2StressLIPIT);
+registerMooseObject("catApp", ADArtVisJ2StressLIPITFinite);
 
 InputParameters
-ADArtVisJ2StressLIPIT::validParams()
+ADArtVisJ2StressLIPITFinite::validParams()
 {
   InputParameters params = DerivativeMaterialInterface<ComputeLagrangianStressPK1>::validParams();
   params += SingleVariableReturnMappingSolution::validParams();
@@ -29,10 +29,11 @@ ADArtVisJ2StressLIPIT::validParams()
   params.addParam<MaterialPropertyName>("mobility_name", "L", "mobility property name");
   params.addParam<MaterialPropertyName>("elastic_energy_name", "elastic_energy", "elastic energy property name");
   params.addRequiredParam<Real>("ep_ref", "refference effective plastic strain");
+  params.addRequiredCoupledVar("h_min", "h_min");
   return params;
 }
 
-ADArtVisJ2StressLIPIT::ADArtVisJ2StressLIPIT(
+ADArtVisJ2StressLIPITFinite::ADArtVisJ2StressLIPITFinite(
     const InputParameters & parameters)
   : DerivativeMaterialInterface<ComputeLagrangianStressPK1>(parameters),
     GuaranteeConsumer(this),
@@ -108,32 +109,46 @@ ADArtVisJ2StressLIPIT::ADArtVisJ2StressLIPIT(
     _I1_neg(declareProperty<Real>("I1_neg")),
     _I3_neg(declareProperty<Real>("I3_neg")),
     _elastic_energy_total(declareProperty<Real>("elastic_energy_total")),
-    _ep_ref(getParam<Real>("ep_ref"))
+    _ep_ref(getParam<Real>("ep_ref")),
+    _Cp_bar(declareProperty<RankTwoTensor>("Cp_bar")),
+    _Cp(declareProperty<RankTwoTensor>("Cp")),
+    _Cp_bar_old(getMaterialPropertyOld<RankTwoTensor>("Cp_bar")),
+    _Cp_old(getMaterialPropertyOld<RankTwoTensor>("Cp")),
+    _Ep_old(getMaterialPropertyOld<RankTwoTensor>("Ep")),
+    _Ee_old(getMaterialPropertyOld<RankTwoTensor>("Ee")),
+    _F_computed(declareProperty<RankTwoTensor>("F_computed")),
+    _S(declareProperty<RankTwoTensor>("S")),
+    _HS_elastic(declareProperty<Real>("HS_elastic")),
+    _HS_plastic(declareProperty<Real>("HS_plastic")),
+    _C_computed(declareProperty<RankTwoTensor>("C_computed")),
+    _h_min(coupledValue("h_min"))
 {
 }
 
 void
-ADArtVisJ2StressLIPIT::initialSetup()
+ADArtVisJ2StressLIPITFinite::initialSetup()
 {
   _flow_stress_material = &getMaterial("flow_stress_material");
 
   // Enforce isotropic elastic tensor
   if (!hasGuaranteedMaterialProperty(_elasticity_tensor_name, Guarantee::ISOTROPIC))
-    mooseError("ADArtVisJ2StressLIPIT requires an isotropic elasticity tensor");
+    mooseError("ADArtVisJ2StressLIPITFinite requires an isotropic elasticity tensor");
 }
 
 void
-ADArtVisJ2StressLIPIT::initQpStatefulProperties()
+ADArtVisJ2StressLIPITFinite::initQpStatefulProperties()
 {
   ComputeLagrangianStressPK1::initQpStatefulProperties();
   _be[_qp].setToIdentity();
   _ep[_qp] = 0;
   _Fp[_qp].setToIdentity(); //stateful plastic deformation gradient
   _Fe[_qp].setToIdentity();
+  _Cp_bar[_qp].zero();
+  _Cp[_qp].zero();
 }
 
 void
-ADArtVisJ2StressLIPIT::computeQpPK1Stress()
+ADArtVisJ2StressLIPITFinite::computeQpPK1Stress()
 {
   usingTensorIndices(i, j, k, l, m);
   const Real G = ElasticityTensorTools::getIsotropicShearModulus(_elasticity_tensor[_qp]);
@@ -192,20 +207,28 @@ ADArtVisJ2StressLIPIT::computeQpPK1Stress()
   _ep[_qp] = _ep_old[_qp] + delta_ep;
   _be[_qp] -= 2. / 3. * delta_ep * _be[_qp].trace() * _Np[_qp];
 
-  //incrementally update Fp and Fe
-  RankTwoTensor delta_Fp = I + delta_ep * _Np[_qp]; //check
-  _Fp[_qp] = delta_Fp * _Fp_old[_qp]; //check
-  _Fe[_qp] = _F[_qp] * _Fp[_qp].inverse(); //check
+  //obtain inverse plastic volume preserving C tensor
 
-  //generate rates for visualization
-  _Ee[_qp] = (1. / 2.) * ((_Fe[_qp].transpose() * _Fe[_qp]) - I);
-  RankTwoTensor Fe_dot = (_Fe[_qp] - _Fe_old[_qp]) / _dt;
-  _Ee_dot[_qp] = (1. / 2.) * ((Fe_dot.transpose() * _Fe[_qp]) + _Fe[_qp].transpose() * Fe_dot);
+  //compute F_bar at n+1
+  //RankTwoTensor F = f * _F_old[_qp].inverse(); //equivalent to computing F[n+1] = f[n+1]F[n].inverse();
+  RankTwoTensor F = _deformation_gradient[_qp];
+  _F_computed[_qp] = F;
+  RankTwoTensor F_bar = std::pow(F.det(), - 1. / 3.) * F;
 
-  _Ep[_qp] = (1. / 2.) * ((_Fp[_qp].transpose() * _Fp[_qp]) - I);
-  RankTwoTensor Fp_dot = (_Fp[_qp] - _Fp_old[_qp]) / _dt;
-  _Ep_dot[_qp] = (1. / 2.) * ((Fp_dot.transpose() * _Fp[_qp]) + _Fp[_qp].transpose() * Fp_dot);
+  //use identity to get volume preserving C^p^-1
 
+  _Cp_bar[_qp] = F_bar.inverse() * _be[_qp] * F_bar.inverse().transpose();
+  _Cp_bar[_qp] = _Cp_bar[_qp].inverse();
+  _Cp[_qp] = _Cp_bar[_qp];
+
+  //use this to compute plastic strain
+
+  _Ep[_qp] = 0.5 * (_Cp[_qp] - I);
+  _Ep_dot[_qp] = (1. / _dt) * (_Ep[_qp] - _Ep_old[_qp]); //backward scheme
+  
+  RankTwoTensor be_total = F * _Cp[_qp].inverse() * F.transpose();
+  _Ee[_qp] = 0.5 * (be_total.transpose() - I);
+  _Ee_dot[_qp] = (1. / _dt) * (_Ee[_qp] - _Ee_old[_qp]);
 
   ///invariants for elastic energy calculation
 
@@ -214,16 +237,13 @@ ADArtVisJ2StressLIPIT::computeQpPK1Stress()
 
   Real I1;
   Real I3;
-  RankTwoTensor B = _Fe[_qp] * _Fe[_qp].transpose();
-  RankTwoTensor C = B.transpose(); //check
-  I1 = C.trace();
-  I3 = C.det();
-  Real dW_dI1 = mu / 2.;
-  Real dW_dI3 = (lambda * log(std::pow(I3, 0.5)) - mu) / (2. * I3);
+  RankTwoTensor B = F * F.transpose();
+  RankTwoTensor C = F.transpose() * F;
+
+  _C_computed[_qp] = C;
 
   //elastic energy stuff for fracture
-
-  _kappa[_qp] = _gcprop[_qp] * _l;
+  _kappa[_qp] = _gcprop[_qp] * _h_min[_qp];
   _L[_qp] = 1. / (_gcprop[_qp] * _visco);
 
   //assign degradation derivatives
@@ -233,47 +253,23 @@ ADArtVisJ2StressLIPIT::computeQpPK1Stress()
   Real dDdc = - 2. * e_norm * std::pow(S, (2.* e_norm) - 1.); //derivative of degradation w.r.t. c
   Real d2Dd2c = 2. * e_norm * (2. * e_norm - 1.) * std::pow(S, (2. * e_norm) - 2.);
 
-  Real elastic_energy = (lambda / 2.) * std::pow(log(std::pow(I3, 0.5)), 2.) + (mu / 2.) * (I1 - 3.) - mu * log(std::pow(I3, 0.5));
+  Real elastic_energy = lambda * ((std::pow(F.det(), 2.) - 1.) / 4.) - ((lambda / 2.) - mu) * std::log(F.det()) + 0.5 * mu * (C.trace() - 3.);
   _elastic_energy_total[_qp] = elastic_energy; //undifferentiated elastic energy directly from cauchy tensor
 
+  _S[_qp] = lambda * ((std::pow(F.det(), 2.) - 1.) / 2.) * C.inverse() + mu * (I - C.inverse());
+  RankTwoTensor tau = F * _S[_qp] * F.transpose();
+  _pk1_stress[_qp] = tau * F.inverse().transpose();
 
-  //stress stuff
-  RankTwoTensor sigma = (2. / std::pow(I3, 0.5)) * ((I3 * dW_dI3 * I) + (dW_dI1 * B)); //total stress tensor
+  /////////////COMPUTE HEAT SOURCES HERE
 
-  //get the strain energy where volumetric strain is positive
+  _HS_plastic[_qp] = 0.5 * _S[_qp].doubleContraction(_Ep_dot[_qp]);
 
-  Real W_pos;
-  Real W_neg;
-  RankTwoTensor sigma_pos;
-  RankTwoTensor sigma_neg;
+  //test: decompose strain energy based in sign
 
-  //get positive loading regions, ORIGINALLY JUST WHERE J > 1
+  _Wpos[_qp] = std::max(_elastic_energy_total[_qp], 0.);
+  _Wneg[_qp] = _elastic_energy_total[_qp] - _Wpos[_qp];
 
-  //write stress positive and negative
-  if (_F[_qp].det() > 1.){
-    W_pos = elastic_energy;
-    W_neg = 0;
-    sigma_pos = sigma;
-    sigma_neg = sigma - sigma_pos;
-    _sigma_pos[_qp] = sigma_pos;
-    _sigma_neg[_qp] = sigma_neg;
-    _Wpos[_qp] = W_pos;
-    _Wneg[_qp] = W_neg;
-  }
-
-  if(_F[_qp].det() <= 1.){
-    W_neg = elastic_energy;
-    W_pos = 0;
-    sigma_neg = sigma;
-    sigma_pos = sigma - sigma_neg;
-    _sigma_pos[_qp] = sigma_pos;
-    _sigma_neg[_qp] = sigma_neg;
-    _Wpos[_qp] = W_pos;
-    _Wneg[_qp] = W_neg;
-  }
-
-  //define total elastic energy and history variable
-
+  //penalize positive
   _W[_qp] = D * _Wpos[_qp] + _Wneg[_qp];
 
   if (_Wpos[_qp] > _Hist_old[_qp]){
@@ -285,19 +281,10 @@ ADArtVisJ2StressLIPIT::computeQpPK1Stress()
   //damage stuff
 
   _dstress_dc[_qp] = D;
-  _elastic_energy[_qp] = (D * _Hist[_qp]) + (_gcprop[_qp] * std::pow(_c[_qp], 2.) / (2. * _l)); //sum of penalized elastic energy plus fractured new surface energy
-  _delastic_energydc[_qp] = (dDdc * _Hist[_qp]) + (_gcprop[_qp] * _c[_qp] / _l);
-  _d2elastic_energyd2c[_qp] = (d2Dd2c * _Hist[_qp]) + (_gcprop[_qp] / _l);
+  _elastic_energy[_qp] = (D * _Hist[_qp]) + (_gcprop[_qp] * std::pow(_c[_qp], 2.) / (2. * _h_min[_qp])); //sum of penalized elastic energy plus fractured new surface energy
+  _delastic_energydc[_qp] = (dDdc * _Hist[_qp]) + (_gcprop[_qp] * _c[_qp] / _h_min[_qp]);
+  _d2elastic_energyd2c[_qp] = (d2Dd2c * _Hist[_qp]) + (_gcprop[_qp] / _h_min[_qp]);
   
-  //output stress tensors
-  RankTwoTensor sigma_penalized = D * sigma_pos + sigma_neg;
-  RankTwoTensor tau = _F[_qp].det() * sigma_penalized;
-  _sigma[_qp] = sigma_penalized;
-  _sigma_pressure[_qp] = - (1. / 3.) * sigma_penalized.trace();
-  _sigma_dev[_qp] = sigma_penalized.deviatoric();
-
-  _pk1_stress[_qp] = detJ * (sigma_penalized) * Fit;
-
   //initialize the symmetric identity tensors
   RankTwoTensor I2(RankTwoTensor::initIdentity);
 
@@ -315,7 +302,25 @@ ADArtVisJ2StressLIPIT::computeQpPK1Stress()
 
   P_av = _C0 * _rho[_qp].value() * (Je_dot * std::abs(Je_dot) / std::pow(Je, 2.0)) * std::pow(_Le, 2.0);
   P_av += _C1 * _rho[_qp].value() * ss * (Je_dot / Je) * _Le;
-  _pk1_stress[_qp] += P_av * I2;
+  _pk1_stress[_qp] += P_av * I;
+
+  //penalize by the degradation function
+  RankTwoTensor pk1_pos;
+  RankTwoTensor pk1_neg;
+
+  if (_Wpos[_qp] != 0.){
+    pk1_pos = _pk1_stress[_qp];
+    pk1_neg = 0;
+    _sigma_pos[_qp] = pk1_pos;
+  }
+  if (_Wneg[_qp] != 0.){
+    pk1_neg = _pk1_stress[_qp];
+    pk1_pos = 0;
+    _sigma_neg[_qp] = pk1_neg;
+  }
+
+  //penalize positive part
+  _pk1_stress[_qp] = D * pk1_pos + pk1_neg;
 
   // Compute the consistent tangent, i.e. the derivative of the PK1 stress w.r.t. the deformation
   // gradient.
@@ -325,10 +330,11 @@ ADArtVisJ2StressLIPIT::computeQpPK1Stress()
                                G * (_d_be_d_F - I.times<i, j, k, l>(I) * _d_be_d_F / 3);
     _pk1_jacobian[_qp] = Fit.times<m, j, i, m, k, l>(d_tau_d_F) - Fit.times<k, j, i, l>(tau * Fit);
   }
+  _HS_elastic[_qp] = 0.5 * P_av * _Ee_dot[_qp].trace();
 }
 
 Real
-ADArtVisJ2StressLIPIT::computeReferenceResidual(const Real & effective_trial_stress,
+ADArtVisJ2StressLIPITFinite::computeReferenceResidual(const Real & effective_trial_stress,
                                                               const Real & scalar)
 {
   const Real G = ElasticityTensorTools::getIsotropicShearModulus(_elasticity_tensor[_qp]);
@@ -336,7 +342,7 @@ ADArtVisJ2StressLIPIT::computeReferenceResidual(const Real & effective_trial_str
 }
 
 Real
-ADArtVisJ2StressLIPIT::computeResidual(const Real & effective_trial_stress,
+ADArtVisJ2StressLIPITFinite::computeResidual(const Real & effective_trial_stress,
                                                      const Real & scalar)
 {
   const Real G = ElasticityTensorTools::getIsotropicShearModulus(_elasticity_tensor[_qp]);
@@ -349,7 +355,7 @@ ADArtVisJ2StressLIPIT::computeResidual(const Real & effective_trial_stress,
 }
 
 Real
-ADArtVisJ2StressLIPIT::computeDerivative(const Real & /*effective_trial_stress*/,
+ADArtVisJ2StressLIPITFinite::computeDerivative(const Real & /*effective_trial_stress*/,
                                                        const Real & scalar)
 {
   const Real G = ElasticityTensorTools::getIsotropicShearModulus(_elasticity_tensor[_qp]);
@@ -362,7 +368,7 @@ ADArtVisJ2StressLIPIT::computeDerivative(const Real & /*effective_trial_stress*/
 }
 
 void
-ADArtVisJ2StressLIPIT::preStep(const Real & scalar, const Real & R, const Real & J)
+ADArtVisJ2StressLIPITFinite::preStep(const Real & scalar, const Real & R, const Real & J)
 {
   if (!_fe_problem.currentlyComputingJacobian())
     return;

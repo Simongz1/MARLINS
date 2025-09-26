@@ -36,8 +36,8 @@ protected:
   ADMaterialProperty<Real> & _heatrate_mister_react;
 
   const MaterialProperty<Real> &_v_flag;
-  const VariableValue &_vx;
-  const VariableValue &_ax;
+  const VectorVariableValue &_v_vect;
+  const VectorVariableValue &_a_vect;
   const Real _thr_v;
   const Real _thr_a;
 
