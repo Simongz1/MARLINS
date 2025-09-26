@@ -501,7 +501,7 @@ Here you will set up the outputs format, as well as outputs frequency.
 
 ----------------------
 
-Any additional information on specific MOOSE usage, modification, or customization, may be found on the following link: (MOOSE - Application Development)
+Any additional information on specific MOOSE usage, modification, or customization, may be found on the following link: ([MOOSE - Application Development](https://mooseframework.inl.gov/application_development/))
 
 ----------------------
 # cat
