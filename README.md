@@ -283,11 +283,11 @@ Here you will define the initial conditions for the problem. Initial conditions 
 			value = 300
 			block = '7 14'
 		[]
-	  [ConstantIC]
-	    type = ConstantIC
-	    variable = gcprop
-	    value = 100e3
-	  []
+		[ConstantIC]
+			type = ConstantIC
+			variable = gcprop
+			value = 100e3
+		[]
 	[]
 
 ### [Materials] ([MOOSE - Materials Syntax](https://mooseframework.inl.gov/syntax/Materials/))
