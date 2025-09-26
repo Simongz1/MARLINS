@@ -1,5 +1,5 @@
-#PS-LIPIT Simulations Code Repository from Prof. [Marisol Koslowski](https://engineering.purdue.edu/ME/People/ptProfile?resource_id=29264) Group
-=====
+# PS-LIPIT Impact Simulations Code Repository from Prof. [Marisol Koslowski](https://engineering.purdue.edu/ME/People/ptProfile?resource_id=29264) Group
+
 Fork "cat" to create a new MOOSE-based application.
 
 For more information see: [https://mooseframework.org/getting_started/new_users.html#create-an-app](https://mooseframework.org/getting_started/new_users.html#create-an-app)
@@ -113,7 +113,9 @@ Constrain the damage variable to be between 0 and 1. Any other bounds can be sup
 
 ### [Mesh] ([MOOSE - Mesh Syntax](https://mooseframework.inl.gov/syntax/Mesh/))
 
-Here you will be able to define your own mesh geometry, either by importing a mesh in a supported mesh format, or by generating a mesh with the built-in mesh capabilities of base MOOSE. The .geo file used to generate the mesh files is available here.
+Here you will be able to define your own mesh geometry, either by importing a mesh in a supported mesh format, or by generating a mesh with the built-in mesh capabilities of base MOOSE.
+
+Different iterations of the PS-LIPIT Impact simulations can be generated using the .geo code at the [Mesh Folder](https://github.com/marisolkoslowski/Marisol/tree/LIPIT/Mesh), which also containts .msh files used to run the example. An imported mesh may be generated as
 
 	[Mesh]
 	  [someName]
@@ -233,41 +235,134 @@ Here you’ll set up some AuxKernels required for inertia. Any other AuxKernels 
 
 Here you will set up the boundary conditions of the problem. The boundary names are set on the .geo file provided. These are arbitrary, and can be modified or assigned manually if the mesh is generated using the MeshGenerator system.
 
-fix_x -> constrain x displacements on the right and left ends of the film
+	[BCs]
+	  [fix_x]
+	    type = DirichletBC
+	    variable = disp_x
+	    boundary = 'right left'
+	    value = 0.0
+	  []
+	  [fix_y]
+	  	type = DirichletBC
+	  	variable = disp_y
+	  	boundary = 'right left'
+	  	value = 0.0
+	  []
+	[]
 
-fix_y -> constrain y displacements on the right and left ends of the film
-
-[ICs] ([MOOSE - ICs Syntax](https://mooseframework.inl.gov/syntax/ICs/))
+### [ICs] ([MOOSE - ICs Syntax](https://mooseframework.inl.gov/syntax/ICs/))
 
 Here you will define the initial conditions for the problem. Initial conditions are usually coupled to blocks or boundaries.
 
-ball_vel -> initial flyer velocity before impact
+	[ICs]
+		[ball_vel]
+			type = ConstantIC
+			variable = vy
+			value = -350
+			block = ball
+		[]
+		[temp_IC]
+			type = ConstantIC
+			variable = temperature
+			value = 300
+			block = '7 14'
+		[]
+	  [ConstantIC]
+	    type = ConstantIC
+	    variable = gcprop
+	    value = 100e3
+	  []
+	[]
 
-temp_IC -> temperature initial condition
-
-ConstantIC -> set up gcprop initial condition 
-
-[Materials] ([MOOSE - Materials Syntax](https://mooseframework.inl.gov/syntax/Materials/))
+### [Materials] ([MOOSE - Materials Syntax](https://mooseframework.inl.gov/syntax/Materials/))
 
 Here you will define material properties with specific models. These models are highly customizable, allowing for complex physics and tightly coupled systems.
 
-plate_const -> define constant material properties for the film (Base MOOSE).
+Base MOOSE materials and Custom materials may be combined simply by listing them as
 
-elastic_tensor_plate -> define the fourth order elasticity tensor for the film. Here we call the young modulus and poison’s ration defined as input variables using a parsed expression (Base MOOSE).
+	[Materials]
+	    
+	  ##materials on block 7: plate
+	  
+	  [plate_const]
+	  	type = ADGenericConstantMaterial ----> BASE MOOSE
+	  	prop_names = 'density specific_heat thermal_conductivity alpha' 
+	  	prop_values = '1100e-9 1250 0.13 3e-5' #kg/m3 J/kg-K W/m-K# 
+	  []
+	  [elastic_tensor_plate]
+	    type = ComputeIsotropicElasticityTensor ----> BASE MOOSE
+	    youngs_modulus = ${E}
+	    poissons_ratio = ${nu}
+	    block = '7'
+	  []
+	  [compute_strain_plate]
+	    type = ComputeLagrangianStrain ----> BASE MOOSE
+	    displacements = 'disp_x disp_y'
+	    block = '7'
+	    #stabilize_strain = true
+	    #eigenstrain_names = thermal_expansion
+	  []
+	  
+	  [flow_stress_plate]
+	  	type = ComputeLagrangianJCYieldStressLIPIT ----> CUSTOM MATERIAL
+	  	epsilon_ref = 1e3 ----> reference plastic strain rate
+	  	transtemp = 400 ----> transition temperature
+	  	temperature = temperature ----> temperature variable
+	  	T0 = 300 ----> reference state temperature
+	  	k = 1 ----> thermal softening coefficient
+	  	compute = false ----> DO NOT MODIFY
+	  	A = 0.2 ----> initial yield stress
+	  	B = 0.33 ----> plastic modulus
+	  	use_temp = 1.0 ----> whether or not to use temperature dependency on yield model
+	  	a_melt = 1.53 ----> deprecated parameter
+	  	n_h = 1.0 ----> hardening exponent
+	  	use_rate = 1.0  ----> whether or not to use strain rate dependency on hardening
+	  	block = plate ----> applied on plate
+	  []
+	  
+	  [compute_stress_plate]
+	    type = ADArtVisJ2StressLIPITFinite ----> CUSTOM MATERIAL
+	    flow_stress_material = flow_stress_plate ----> where the yield stress is computed 
+	    C0 = 0.1 ----> VonNeumann parameter
+	    C1 = 1.0 ----> Landshoff parameter
+	    element_size = 20
+	    ##damage parameters
+	    c = c ----> damage variabke
+	    l = 5 ----> featyre width
+	    kappa_name = kappa ----> kappa operator
+	    visco = 0.1 ----> fracture speeed viscosity
+	    gc = 1e-4 ----> surface energy
+	    gcprop = gcprop ----> variable surface energy
+	    kdamage = 1e-4 ----> residual stiffness
+	    ep_ref = 2 ----> reference plastic strain for degradation function
+	    ##declarations
+	    elastic_energy_name = elastic_energy ----> DO NOT MODIFY
+	    mobility_name = L ----> DO NOT MODIFY
+	    h_min = h_min ----> variable storing the minimum element size
+	    block = plate ----> apploed to plate
+	  []
+	
+	  ##materials on block 14: ball
+	  [elastic_tensor_ball]
+	    type = ComputeIsotropicElasticityTensor ----> BASE MOOSE
+	    youngs_modulus = 10000
+	    poissons_ratio = 0.35
+	    block = ball
+	  []
+	  [compute_strain_ball]
+	    type = ComputeLagrangianStrain ----> BASE MOOSE
+	    displacements = 'disp_x disp_y'
+	    block = ball
+	  []
+	  [compute_stress_ball]
+	    type = ComputeLagrangianLinearElasticStress ----> BASE MOOSE
+	    block = ball
+	  []
+	[]
 
-compute_strain_plate -> compute incremental deformation gradient from displacements (Base MOOSE).
+In particular, custom materials often require many input parameters.
 
-flow_stress_plate -> define the Johnson-Cook yield parameters for the film. Note: do not modify compute = false (in-house coded).
-
-compute_stress_plate -> compute the First Piola-Kirchhoff, Second Piola-Kirchhoff, consistent tangent modulus, radial return update of the intermediate configuration, elastic and plastic Lagrangian strains, strain energy, damage penalty to stress, plastic work, and stabilization by artificial viscosity. This material is the core of the model, and many of its parameters strongly modify the global behavior of the model (in-house coded).
-
-elastic_tensor_ball -> compute fourth order elasticity tensor for the flyer (Base MOOSE). Note: we set the flyer to be many orders of magnitude stiffer than the film to simulate a “perfectly elastic” flyer. Modify accordingly.
-
-compute_strain_ball -> compute incremental deformation gradient from displacements (Base MOOSE). 
-
-compute_stress_ball -> compute linear elastic stress for the flyer using Hooke’s law (Base MOOSE).
-
-[AuxVariables] ($\textbf{outputs}$)
+### [AuxVariables] ($\textbf{outputs}$)
 
 Note: MOOSE supports component-wise tensor outputs, as well as scalar outputs.
 
@@ -300,40 +395,57 @@ Structure for outputting tensors:
 		[]
 	[]
 
-[Contact] ([MOOSE - Contact Syntax](https://mooseframework.inl.gov/syntax/Contact/))
+### [Contact] ([MOOSE - Contact Syntax](https://mooseframework.inl.gov/syntax/Contact/))
 
 Here you will define the type of contact between the flyer and the film. 
-primary = ball_bottom -> arbitrary name for the flywers surface
-secondary = top -> arbitrary name for the films upper surface
 
-[Executioner] ([MOOSE - Executioner Syntax](https://mooseframework.inl.gov/syntax/Executioner/))
+	[Contact]
+	    [mechanical]
+	      formulation = penalty ----> type of contact algorithm
+	      model = frictionless ----> contact model
+	      primary   = 'ball_bottom' ----> primary surface
+	      secondary = 'top' ----> secondary surface
+	      penalty = 1e3 ----> penalty for implicit return solve
+	      tension_release = 100 ----> maximum debonding tension at iterface
+	    []
+	[]
 
-Here you will define the type of problem. Note: these parameters should not be modified.
+### [Executioner] ([MOOSE - Executioner Syntax](https://mooseframework.inl.gov/syntax/Executioner/))
 
-[Preconditioning] ([MOOSE - Preconditioning Syntax](https://mooseframework.inl.gov/syntax/Preconditioning/)) 
+Here you will define the type of problem. Note: these parameters should be modified with caution.
+
+	[Executioner]
+	  type = Transient ----> type of MOOSE problem
+	  line_search = none
+	  petsc_options_iname = '-ksp_gmres_restart -pc_type -pc_hypre_type -pc_hypre_boomeramg_max_iter -snes_type' ----> PetSc options for PDE solver
+	  petsc_options_value = '201 hypre boomeramg 20 vinewtonrsls'  ----> values
+	  automatic_scaling = true ----> perform initial scaling calculation
+	  solve_type = Newton ----> numerical integrator to use
+	  l_max_its = 20 ----> maximum linear iterations per step
+	  nl_max_its = 20 ----> maximum nonlinear iterations per step
+	  nl_rel_tol = 1e-6 ----> nonlinear relative tolerance before failure and cut back of timestep
+	  nl_abs_tol = 1e-6 ----> nonlinear absolute tolerance before failure and cut back of timestep
+	  start_time = 0.0 ----> DO NOT MODIFY
+	  dt = 1e-3 ----> timestep size
+	  end_time = 10000 ----> final time
+	[]
+
+### [Preconditioning] ([MOOSE - Preconditioning Syntax](https://mooseframework.inl.gov/syntax/Preconditioning/)) 
 
 Note: read MOOSE’s documentation.
 
-[Outputs] ([MOOSE - Outputs Syntax](https://mooseframework.inl.gov/syntax/Outputs/))
+### [Outputs] ([MOOSE - Outputs Syntax](https://mooseframework.inl.gov/syntax/Outputs/))
 
 Here you will set up the outputs format, as well as outputs frequency.
-exodus = true -> generates .e files. It is highly recommended to be read using Paraview.
 
-interval = 20 -> this defines the frequency at which outputs are written into disk. Note: a high frequency makes simulation outputs very heavy, keep this value no lower than 20.
+	[Outputs]
+	  exodus = true ----> type of output file for simulation results
+	  interval = 20 ----> frequency of timeframe saving
+	[]
 
 ----------------------
 
 Any additional information on specific MOOSE usage, modification, or customization, may be found on the following link: (MOOSE - Application Development)
 
 ----------------------
-
-Code developed and maintained by:
-Simon Gonzalez-Zapata
-
-PhD Student – Purdue University
-
-Contact: gonz1075@purdue.edu
-
-GitHub: https://github.com/Simongz1/
-
 # cat
