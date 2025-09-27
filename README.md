@@ -76,6 +76,8 @@ MOOSE only compiles with modules marked for compilation in the MakeFile. The app
 ## PS-Impact simulations tutorial for running test case
 The following tutorial explains how to set up a PS-LIPIT impact simulation following the workflow for our $N1$ Material Impacted at $v = 350\ m/s$ simulation case.
 
+**Tor reproduce different simulation cases, suchas different impact velocities or different materials ($N_1$, $N_2$), please see Table S1 in the Supplementary Information**
+
 Note: MOOSE uses arbitrary units. The simulations we perform use the system:
 
 + Distance $\longrightarrow$ $nm$
