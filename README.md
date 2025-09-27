@@ -208,10 +208,10 @@ Custom and base MOOSE kernels can be combined naturally as
 		[./PlasticHS] ##computes plastic flow heat source
 			type = ADVisHSLIPIT ----> CUSTOM KERNEL
 			variable = temperature
-			beta_p = 0.5
+			beta_p = 0.5 ----> fraction of plastic dissipation converted into heat
 			block = plate
-			beta_comp = 1
-			reference_temperature = 300
+			beta_comp = 1 ----> fraction of elastic compression converted into hear
+			reference_temperature = 300 ----> reference state temperature
 		[../]
 		##--- [Stress Divergence Kernels] ---##
 		[sdx]
@@ -252,14 +252,14 @@ Custom and base MOOSE kernels can be combined naturally as
 		[c_dot]
 			type = ADTimeDerivative ----> BASE MOOSE
 			variable = c
-			use_displaced_mesh = true
+			use_displaced_mesh = true ----> computes gradients at the current configuration
 			block = plate
 			[]
 		[AC]
 			type = AllenCahn ----> BASE MOOSE
 			variable = c
-			f_name = elastic_energy
-			mob_name = L
+			f_name = elastic_energy ----> variable storing the elastic energy
+			mob_name = L ----> phase field mobility variable
 			use_displaced_mesh = true
 			block = plate
 		[]
@@ -495,6 +495,3 @@ Here you will set up the outputs format, as well as outputs frequency.
 ----------------------
 
 Any additional information on specific MOOSE usage, modification, or customization, may be found on the following link: ([MOOSE - Application Development](https://mooseframework.inl.gov/application_development/))
-
-----------------------
-# cat
