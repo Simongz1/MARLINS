@@ -71,17 +71,10 @@ MOOSE only compiles with modules marked for compilation in the MakeFile. The app
 	###############################################################################
 
 
-## How to contribute?
-+ Add your source files (.C) to the folder ./src/ and subfolder /kernel/ or /material/ depending on the object type
-+ Add your header files (.h) to the folder ./include/ and subfolder /kernel/ or /material/ depending on the object type
-+ Add example of MOOSE input (.i) file to the ./folder ExampleInputFiles/ with all required objects and variables for simulation setup
-
-The material is publised under the GNU General Public License. You can reuse it if you also include the same license and cite this repository. Please send an e-mail to marisol@purdue.edu if you have any questions.
-
 --------
 
 ## PS-Impact simulations tutorial for running test case
-The following tutorial explains how to set up a PS-LIPIT impact simulation following the workflow for our $N1 \rightarrow v = 350\ m/s$ simulation case.
+The following tutorial explains how to set up a PS-LIPIT impact simulation following the workflow for our $N1$ Material Impacted at $v = 350\ m/s$ simulation case.
 
 Note: MOOSE uses arbitrary units. The simulations we perform use the system:
 
