@@ -226,7 +226,7 @@ ADArtVisJ2StressLIPITFinite::computeQpPK1Stress()
   _Ep[_qp] = 0.5 * (_Cp[_qp] - I);
   _Ep_dot[_qp] = (1. / _dt) * (_Ep[_qp] - _Ep_old[_qp]); //backward scheme
   
-  RankTwoTensor be_total = F * _Cp[_qp].inverse() * F.transpose();
+  RankTwoTensor be_total = std::pow(F.det(), 2. / 3.) * F * _Cp[_qp].inverse() * F.transpose();
   _Ee[_qp] = 0.5 * (be_total.transpose() - I);
   _Ee_dot[_qp] = (1. / _dt) * (_Ee[_qp] - _Ee_old[_qp]);
 
