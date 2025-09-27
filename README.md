@@ -13,7 +13,7 @@ Follow the tutorial below to run an example case.
 
 Code maintained by:
 
-[Simon Gonzalez-Zapata](https://github.com/Simongz1) - PhD Student in Mechanical Engineering, Purdue University
+[Simon Gonzalez-Zapata](mailto:gonz1075@purdue.edu) - PhD Student in Mechanical Engineering, Purdue University
 
 ## Dependecy versions:
 
