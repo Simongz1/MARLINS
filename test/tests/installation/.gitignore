@@ -1,0 +1,6 @@
+!fractions.csv
+!pore_fractions.csv
+
+*.testharness_time
+tmp*
+*out_cp

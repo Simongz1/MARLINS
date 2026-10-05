@@ -1,0 +1,51 @@
+[Tests]
+  [pbx_initialization]
+    type = RunApp
+    input = pbx_initialization.i
+    max_parallel = 1
+    max_threads = 1
+    max_time = 120
+    absent_out = 'Time Step 1,'
+  []
+  [check_pbx_initialization]
+    type = RunCommand
+    command = 'python3 check_outputs.py pbx_initialization'
+    prereq = 'pbx_initialization'
+  []
+  [ad_thermal_diffusion]
+    type = RunApp
+    input = ad_thermal_diffusion.i
+    max_parallel = 1
+    max_threads = 1
+    max_time = 120
+  []
+  [check_ad_thermal_diffusion]
+    type = RunCommand
+    command = 'python3 check_outputs.py ad_thermal_diffusion'
+    prereq = 'ad_thermal_diffusion'
+  []
+  [mode1_fracture]
+    type = RunApp
+    input = mode1_fracture.i
+    max_parallel = 1
+    max_threads = 1
+    max_time = 120
+  []
+  [check_mode1_fracture]
+    type = RunCommand
+    command = 'python3 check_outputs.py mode1_fracture'
+    prereq = 'mode1_fracture'
+  []
+  [viscoplastic_relaxation]
+    type = RunApp
+    input = viscoplastic_relaxation.i
+    max_parallel = 1
+    max_threads = 1
+    max_time = 120
+  []
+  [check_viscoplastic_relaxation]
+    type = RunCommand
+    command = 'python3 check_outputs.py viscoplastic_relaxation'
+    prereq = 'viscoplastic_relaxation'
+  []
+[]

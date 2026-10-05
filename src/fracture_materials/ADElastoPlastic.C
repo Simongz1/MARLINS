@@ -780,7 +780,7 @@ ADElastoPlastic::viscoPlasticUpdate(){
   //use the compute trial elastic stress to compute q
   const ADRankTwoTensor sigma_e_trial_deviatoric = sigma_e_trial.deviatoric();
 
-  const ADReal q_squared =1.5 * sigma_e_trial_deviatoric.doubleContraction(sigma_e_trial_deviatoric);
+  const ADReal q_squared = 1.5 * sigma_e_trial_deviatoric.doubleContraction(sigma_e_trial_deviatoric);
 
   if (MetaPhysicL::raw_value(q_squared) <= 0.0)
   {
