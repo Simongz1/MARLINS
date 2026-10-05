@@ -33,7 +33,7 @@ Developed and maintained by [Simon Gonzalez](mailto:gonz1075@purdue.edu), [Koslo
 | Equations of state | JWL-related and Mie–Grüneisen components for pressure/thermodynamic response | Model availability and required properties depend on the selected formulation |
 | Shock-response analysis | Spatial profiles, time histories, EOS and shock/particle-velocity relationships, run-to-detonation and Pop-plot utilities | Research scripts with study-specific data and analysis assumptions |
 | Workflow automation | YAML-driven input generation and optional Slurm submission | Supports preparation and execution of studies with external data and site-specific configuration |
-| Supporting constitutive development | NH/SVK elasticity and plasticity, optional NH viscoplasticity, orientation comparisons, and fracture degradation coupling | Additional mechanics capabilities; complete fracture examples are not bundled |
+| Supporting constitutive development | NH/SVK elasticity and plasticity, optional NH viscoplasticity, orientation comparisons, and fracture degradation coupling | Additional mechanics capabilities; a small mode-I integration test is bundled |
 | Eulerian finite volumes | AD flux, stress, pressure, temperature, and mixture components; custom transport kernels | Development components; no complete FV example is included in the top-level `inputs/` directory |
 
 Many custom objects use automatic differentiation (AD). Legacy non-AD implementations also remain in the source tree. Having a model implemented does not establish its validation range; the bundled tests do not validate all the physics listed above.
@@ -95,24 +95,56 @@ python -m pip install numpy pandas scipy matplotlib pyyaml
 
 ## Verify the installation
 
-From the repository root, inspect the executable and run the bundled regression test:
+After building `ml-opt`, activate its compatible MOOSE environment and run the
+installation suite from the repository root:
 
 ```bash
 ./ml-opt --help
-./run_tests -j 2
+./run_tests --re installation -j 2
 ```
 
-The test suite includes a small, self-contained diffusion problem with an Exodus reference result. To run that problem directly and keep output in a separate directory:
+Expected result: **8 passed, 0 skipped, 0 failed**—four simulations and four
+dependent output checks. Each simulation uses one MPI process and one thread.
+The tests use generated meshes and bundled synthetic CSV fixtures, without
+external research datasets.
+
+| Test input | Expected outcome |
+| --- | --- |
+| [PBX initialization](test/tests/installation/pbx_initialization.i) | Particle/binder and orientation fields initialize; one CSV row at time zero, with **no timesteps**. |
+| [AD thermal diffusion](test/tests/installation/ad_thermal_diffusion.i) | A random temperature field smooths over five steps to time 0.05; six CSV rows including initialization. **No decomposition kinetics or mechanics are included.** |
+| [Mode-I fracture](test/tests/installation/mode1_fracture.i) | A notched 8×8 specimen undergoes opening over five steps to time 0.1; damage evolves within prescribed bounds and six CSV rows are written. |
+| [Viscoplastic relaxation](test/tests/installation/viscoplastic_relaxation.i) | One element ramps to displacement 0.01 by time 20, then holds until time 200; plastic strain increases and axial stress relaxes during the hold. |
+
+Every output check requires finite CSV values. These are installation and
+integration checks, not validation of material predictions, crack paths, or
+shock-to-detonation behavior.
+
+See the [test instructions and expected outcomes](test/tests/installation/README.md)
+for individual run commands, exact pass criteria, output fields, visualization
+suggestions, and troubleshooting. To run just one case and its check:
 
 ```bash
-mkdir -p runs/smoke
-cd runs/smoke
-../../ml-opt -i ../../test/tests/kernels/simple_diffusion/simple_diffusion.i
+./run_tests --re 'installation.*mode1_fracture' -j 1
 ```
 
-This checks basic application execution. It does **not** verify the custom constitutive, reactive, fracture, or finite-volume models. The `unit/` directory currently contains sample GoogleTest tests.
+Expected result for this filtered command: **2 passed, 0 skipped, 0 failed**.
 
-If the build cannot find MOOSE makefiles, check `MOOSE_DIR`. Compiler, library, or MPI errors commonly require checking that the build and runtime environments use compatible dependencies. A missing `paraview.simple` module indicates that the selected Python interpreter lacks ParaView's bindings.
+On the reviewed Negishi installation, activate the MOOSE Conda environment and
+unload the default OpenMPI module before running these commands:
+
+```bash
+module load conda
+conda activate moose
+module unload openmpi/4.1.4
+export MOOSE_DIR="$HOME/projects/moose"
+```
+
+This setup is site-specific; use the compiler/MPI environment matching your own
+build. Check `MOOSE_DIR` if MOOSE makefiles or the test harness cannot be found.
+
+The existing [simple diffusion regression test](test/tests/kernels/simple_diffusion/simple_diffusion.i)
+remains available, and `./run_tests -j 2` runs the full discovered suite. The
+`unit/` directory contains sample GoogleTest tests.
 
 ## Workflows
 
@@ -128,7 +160,7 @@ The generator prompts for a **YAML configuration filename**. Its working-directo
 
 The Lagrangian formulation connects microstructure to deformation, stress, density changes, and thermal response under shock loading. Mechanical work heating and thermal transport provide the link between the evolving mechanical state and temperature. This supports research into how heterogeneous material response contributes to the spatial and temporal structure of a compression wave.
 
-The files in [inputs/](inputs/) illustrate the coupled Lagrangian formulation. They require external model data and are not standalone installation tests. `distributions_template.i` contains substitution placeholders and must be processed before use. A study focused on mechanical or nonreactive response requires an input and material definitions consistent with that scope; a dedicated nonreactive example is not bundled.
+The files in [inputs/](inputs/) illustrate the coupled Lagrangian formulation. They require external model data and are not standalone installation tests. `distributions_template.i` contains substitution placeholders and must be processed before use. A study focused on mechanical or nonreactive response requires an input and material definitions consistent with that scope; the installation suite includes nonreactive thermal and mechanics cases, but no dedicated nonreactive shock-compaction example.
 
 Custom objects are registered with `mlApp` and can be composed with the enabled MOOSE modules. Direct MOOSE inputs define the mesh, variables, equations, materials, initial/boundary conditions, solvers, and outputs.
 
@@ -161,7 +193,7 @@ These are research utilities, not a uniform command-line package. Several prompt
 
 ### 6. Extend the mechanics or numerical formulation
 
-Supporting mechanics development includes [ADElastoPlastic](src/fracture_materials/ADElastoPlastic.C), with NH/SVK constitutive branches, optional NH viscoplasticity, and degradation/history properties for fracture coupling. The [constitutive comparison utility](pyscripts/generate_constitutive_cases.py) creates NH and unrotated/rotated SVK variants from a user-supplied mechanics template and named ASCII Gmsh mesh. Those inputs are not bundled, and a complete phase-field fracture problem requires additional equations and materials.
+Supporting mechanics development includes [ADElastoPlastic](src/fracture_materials/ADElastoPlastic.C), with NH/SVK constitutive branches, optional NH viscoplasticity, and degradation/history properties for fracture coupling. The [constitutive comparison utility](pyscripts/generate_constitutive_cases.py) creates NH and unrotated/rotated SVK variants from a user-supplied mechanics template and named ASCII Gmsh mesh. The comparison utility's template and mesh are not bundled. A self-contained mode-I coupling example is available in the [installation tests](test/tests/installation/README.md).
 
 The [finite-volume kernels](src/fvkernels/) and [functor materials](src/fvmaterials/) provide components for exploring Eulerian transport and mixture formulations. This remains a development workflow requiring a compatible input and independent verification; the current top-level examples do not include a complete FV cavity-compression case.
 
@@ -177,7 +209,7 @@ The [finite-volume kernels](src/fvkernels/) and [functor materials](src/fvmateri
 | `src/ics/`, `src/auxkernels/`, `src/userobjects/` | Microstructure initialization and field assignment |
 | `inputs/` | Lagrangian input template and example input requiring external data |
 | `pyscripts/`, `bash/` | Generation, analysis, and batch-job utilities |
-| `test/`, `unit/` | Regression-test infrastructure and sample unit tests |
+| `test/`, `unit/` | Diffusion regression, installation integration tests, and sample unit tests |
 | `doc/` | MooseDocs scaffolding; currently minimal project documentation |
 | `fromBell/` | Separate legacy application snapshot, including older inputs |
 | `original/`, if present | Local duplicate source tree; not tracked in the reviewed checkout |
@@ -189,7 +221,7 @@ The root Makefile builds the top-level application. Treat nested application sna
 
 - External material/microstructure CSVs, a simulation YAML example, and the constitutive generator's mesh/template are not bundled.
 - The repository does not specify a tested MOOSE revision, Python dependency versions, or a complete supported-platform matrix.
-- Automated coverage is limited to basic diffusion and sample unit tests; custom physics need dedicated verification and validation.
+- Automated coverage includes basic diffusion, installation integration checks, and sample unit tests; custom physics still require dedicated verification and validation.
 - Scheduler settings, transfer destinations, data filenames, and some analysis settings are specific to the original research environment.
 - Model parameters and scripts use workflow-specific units. Check dimensional consistency across geometry, stiffness, density, time, temperature, and imported tables.
 

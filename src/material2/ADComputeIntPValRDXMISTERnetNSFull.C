@@ -223,10 +223,7 @@ ADComputeIntPValRDXMISTERnetNSFull::computeQpProperties()
     }
   };
 
-  ADReal v_norm;
-  ADReal a_norm;
-  v_norm = L2norm(v_vect);
-  a_norm = L2norm(a_vect);
+  const ADReal v_norm = L2norm(v_vect);
   
   //use the helper function
   _us[_qp] = computeUs(v_norm, _coeffs);
@@ -274,7 +271,7 @@ ADComputeIntPValRDXMISTERnetNSFull::computeQpProperties()
     is_binder = (!is_pore && !is_bulk);
     
     //define call velocity explicitly
-    const Real call_up = std::clamp(L2norm(v_vect).value(), (0.0), (4.89));
+    const Real call_up = std::clamp(v_norm.value(), (0.0), (4.89));
 
     //retrieve data based on grain or binder
     if (is_binder){ //this is the usual loop
@@ -340,7 +337,7 @@ ADComputeIntPValRDXMISTERnetNSFull::computeQpProperties()
       _stored_time  = pred_time;
     }
     
-    _called_up[_qp] = L2norm(v_vect);
+    _called_up[_qp] = v_norm;
   }
 
   //ORDER 3

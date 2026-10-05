@@ -101,6 +101,10 @@ PolycrystalDensityUO::initialSetup(){
   _radii.clear();
   _radii.reserve(_num_grains);
 
+  //allocate grainID
+  _grainID.clear();
+  _grainID.reserve(_num_grains);
+
   if (_sizes.size() < 2)
     paramError("sizes", "At least two particle sizes are required.");
   if (_sizes_fraction.empty() || _sizes_fraction[0] < 0.0 || _sizes_fraction[0] > 1.0)
@@ -208,25 +212,20 @@ PolycrystalDensityUO::initialSetup(){
   auto & var_euler2 = sys.getVariable(_tid, "euler2");
   auto & var_euler3 = sys.getVariable(_tid, "euler3");
 
+  std::unordered_map<dof_id_type, Real> elem_euler1;
+  std::unordered_map<dof_id_type, Real> elem_euler2;
+  std::unordered_map<dof_id_type, Real> elem_euler3;
+
   //generate euler angles vectors
-  const auto orientation_count = _euler_angles ? _centers.size() : 0;
-  std::vector<Real> grain_euler1(orientation_count), grain_euler2(orientation_count),
-      grain_euler3(orientation_count);
+  std::vector<Real> grain_euler1(_num_grains), grain_euler2(_num_grains), grain_euler3(_num_grains);
 
   if (_euler_angles){
     MooseRandom::seed(1234);
 
     for (unsigned int g = 0; g < _num_grains; ++g){
-      // Preserve all draws, including requested centers that could not be placed.
-      const Real euler1 = MooseRandom::rand();
-      const Real euler2 = MooseRandom::rand();
-      const Real euler3 = MooseRandom::rand();
-      if (g < orientation_count)
-      {
-        grain_euler1[g] = euler1;
-        grain_euler2[g] = euler2;
-        grain_euler3[g] = euler3;
-      }
+      grain_euler1[g] = MooseRandom::rand();
+      grain_euler2[g] = MooseRandom::rand();
+      grain_euler3[g] = MooseRandom::rand();
     }
 
     if (_tid == 0){
@@ -234,14 +233,11 @@ PolycrystalDensityUO::initialSetup(){
     }
   }
 
-  // Reuse DOF buffers and the CSV row instead of allocating per element.
-  std::vector<dof_id_type> dof_indices;
-  std::vector<dof_id_type> dof_indices_grainID;
-  std::vector<dof_id_type> dof_indices_euler1;
-  std::vector<dof_id_type> dof_indices_euler2;
-  std::vector<dof_id_type> dof_indices_euler3;
-  std::vector<dof_id_type> dof_indices_Y1;
-  const auto & data = _csv_total_fractions[0];
+  //unordered map for density
+  std::unordered_map<dof_id_type, Real> elem_density;
+
+  //unordered map for grainID
+  std::unordered_map<dof_id_type, Real> elem_grainID;
 
   //write initial values to the variable field
   for (const auto & elem : _fe_problem.mesh().getMesh().active_element_ptr_range())
@@ -334,12 +330,9 @@ PolycrystalDensityUO::initialSetup(){
         grainID = static_cast<Real>(nearest + 1);
 
         //assign euler
-        if (_euler_angles)
-        {
-          euler1 = grain_euler1[nearest];
-          euler2 = grain_euler2[nearest];
-          euler3 = grain_euler3[nearest];
-        }
+        euler1 = grain_euler1[nearest];
+        euler2 = grain_euler2[nearest];
+        euler3 = grain_euler3[nearest];
       }
       
       //else if (is_grain){
@@ -368,8 +361,24 @@ PolycrystalDensityUO::initialSetup(){
       grainID = is_grain ? static_cast<Real>(nearest + 1) : 0.0;
     }
     
-    // Write values directly; no per-element field caches are needed.
+    //here the density value is assigned to the unordered map
+    elem_density[elem->id()] = density_val;
+    elem_grainID[elem->id()] = grainID;
+
+    elem_euler1[elem->id()] = euler1;
+    elem_euler2[elem->id()] = euler2;
+    elem_euler3[elem->id()] = euler3;
+
+    //this is specific for density, replicate for grainID
+    std::vector<dof_id_type> dof_indices;
+    std::vector<dof_id_type> dof_indices_grainID;
+
+    //generate dof map if euler angles is set
     if (_euler_angles){
+      std::vector<dof_id_type> dof_indices_euler1;
+      std::vector<dof_id_type> dof_indices_euler2;
+      std::vector<dof_id_type> dof_indices_euler3;
+
       dof_map.dof_indices(elem, dof_indices_euler1, var_euler1.number());
       dof_map.dof_indices(elem, dof_indices_euler2, var_euler2.number());
       dof_map.dof_indices(elem, dof_indices_euler3, var_euler3.number());
@@ -397,22 +406,33 @@ PolycrystalDensityUO::initialSetup(){
     for (auto dof : dof_indices_grainID){
       sys.solution().set(dof, grainID);
     }
-    // Initialize Y1 from this element's MicroID while it is still available.
+  }
+  sys.solution().close();
+
+  //read csv using density_i
+  const std::vector<Real> data = _csv_total_fractions[0];
+  const std::vector<Real> data_pore = _csv_total_fractions_pore[0];
+
+  for (const auto & elem : _fe_problem.mesh().getMesh().active_element_ptr_range())
+  {
+    std::vector<dof_id_type> dof_indices_Y1;
     nl_dof_map.dof_indices(elem, dof_indices_Y1, var_Y1.number());
 
     if (dof_indices_Y1.empty())
       continue;
 
     //elemental MicroID assigned earlier
-    const int call_density = static_cast<int>(std::round(density_val));
+    const Real density_value = elem_density[elem->id()];
+    const int call_density = static_cast<int>(std::round(density_value));
 
     //region type conditions
-    const bool fraction_is_pore = (call_density >= _range_pore[0] && call_density <= _range_pore[1]);
-    const bool fraction_is_bulk = (call_density == _bulk_MicroID);
+    const bool is_pore = (call_density >= _range_pore[0] && call_density <= _range_pore[1]);
+    const bool is_bulk = (call_density == _bulk_MicroID);
+    const bool is_binder = (!is_pore && !is_bulk);
 
     //fraction value based on region conditions
     Real predicted_fraction = 0.0;
-    if (fraction_is_pore || fraction_is_bulk)
+    if (is_pore || is_bulk)
     {
       //here we assume that pores are 100%RDX MASS FRACTION
       predicted_fraction = _bulk_RDX_fraction;
@@ -429,7 +449,6 @@ PolycrystalDensityUO::initialSetup(){
       nl_sys.solution().set(dof, predicted_fraction);
   }
 
-  sys.solution().close();
   nl_sys.solution().close();
 }
 ///kept empty on purpose
@@ -466,7 +485,7 @@ PolycrystalDensityUO::readCSV(const std::string csv_file_name){
         mooseError("Invalid value in CSV file: " + value);
       }
     }
-    data.push_back(std::move(row));
+    data.push_back(row);
   }
   file.close();
   return data;
