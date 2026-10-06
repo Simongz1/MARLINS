@@ -1,4 +1,5 @@
 #include "ADComputeElasticWorkHeating.h"
+#include <algorithm>
 
 registerMooseObject("mlApp", ADComputeElasticWorkHeating);
 
@@ -43,15 +44,16 @@ ADComputeElasticWorkHeating::ADComputeElasticWorkHeating(const InputParameters &
 void
 ADComputeElasticWorkHeating::computeQpProperties()
 {
-    ADRankTwoTensor I2;
-    I2.setToIdentity();
 
     //component contribution from volumetric compression
     ADReal q_pressure;
-    ADRankTwoTensor Ce = _Fe[_qp].transpose() * _Fe[_qp];
+    const ADRankTwoTensor Ce = _Fe[_qp].transpose() * _Fe[_qp];
+
+    //volumetric rate
+    const ADReal vol_rate = Ce.inverse().doubleContraction(_Ee_dot[_qp]);
 
     //if use PK2, use work conjugate C.inverse()
-    q_pressure = - std::max(_T[_qp] * _dPdT[_qp] * (Ce.inverse().doubleContraction(_Ee_dot[_qp])), ADReal(0.0));
+    q_pressure = std::max(ADReal(- _T[_qp] * _dPdT[_qp] * vol_rate), ADReal(0.0));
 
     ADReal reaction_thr;
     reaction_thr = _consistent_tau ? _time_react[_qp] : ADReal(_thr_activation);

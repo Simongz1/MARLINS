@@ -256,10 +256,9 @@ ADPBXStress::computeQpStress()
   _Ee[_qp] = 0.5 * (_Fe[_qp].transpose() * _Fe[_qp] - I2);
   _Ep[_qp] = 0.5 * (_Cp[_qp] - I2);
 
-  ADRankTwoTensor F_dot, Fe_dot, Fp_dot;
-  Fp_dot = (1. / _dt) * (_Fp[_qp] - _Fp_old[_qp]);
-  Fe_dot = (1. / _dt) * (_Fe[_qp] - _Fe_old[_qp]);
-  F_dot = (1. / _dt) * (_F[_qp] - _F_old[_qp]);
+  const ADRankTwoTensor Fp_dot = (1. / _dt) * (_Fp[_qp] - _Fp_old[_qp]);
+  const ADRankTwoTensor Fe_dot = (1. / _dt) * (_Fe[_qp] - _Fe_old[_qp]);
+  const ADRankTwoTensor F_dot = (1. / _dt) * (_F[_qp] - _F_old[_qp]);
 
   _Ep_dot[_qp] = 0.5 * (Fp_dot.transpose() * _Fp[_qp] + _Fp[_qp].transpose() * Fp_dot);
   _Ee_dot[_qp] = 0.5 * (Fe_dot.transpose() * _Fe[_qp] + _Fe[_qp].transpose() * Fe_dot);
@@ -275,7 +274,7 @@ ADPBXStress::computeQpStress()
 
   //compute sound speed and bulk modulus from elasticity tensors
   //this is important for the case later on when we add anisotropic behaviour
-  ADReal ss = MetaPhysicL::sqrt(_mixture_bulk + ((4. / 3.) * _mixture_shear) / (_rho[_qp] / _J[_qp]) );
+  const ADReal ss = MetaPhysicL::sqrt(_mixture_bulk + ((4. / 3.) * _mixture_shear) / (_rho[_qp] / _J[_qp]) );
   _ss[_qp] = ss;
 
   //compute artificial viscosity
