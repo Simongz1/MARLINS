@@ -26,6 +26,7 @@ ADElastoPlastic::validParams()
   //exponential approximation
   params.addParam<bool>("exponential_stretch_approximation", true, "use third order exponential approximation of the stretch increment");
   params.addParam<bool>("penalize_shear", true, "penalize shear strain energy part");
+  params.addParam<std::string>("stress_model", "cauchy", "stress tensor to return");
 
   //optional artificial viscosity parameters
   params.addParam<bool>("use_artificial_viscosity", false, "use artificial viscosity stabilization for high strain rates");
@@ -114,6 +115,7 @@ ADElastoPlastic::ADElastoPlastic(
     //stretch approximation
     _exp_approx(getParam<bool>("exponential_stretch_approximation")),
     _penalize_shear(getParam<bool>("penalize_shear")),
+    _stress_model(getParam<std::string>("stress_model")),
 
     //for artificial viscosity
     _use_av(getParam<bool>("use_artificial_viscosity")),
@@ -307,7 +309,11 @@ ADElastoPlastic::computeQpStress()
   _cauchy[_qp] = _De[_qp] * stresses[1] + stresses[2];
   _pk1[_qp] = _J[_qp] * _cauchy[_qp] * _F[_qp].inverse().transpose();
   _pk2[_qp] = _F[_qp].inverse() * _pk1[_qp];
-  _stress[_qp] = _cauchy[_qp];
+
+  //check first what configuraiton we are in
+  //artificial viscosity is added at the end
+
+  _stress[_qp] = _stress_model == "cauchy" ? _cauchy[_qp] : _pk1[_qp];
 
   //check whether we want artificial viscosity
   if (_use_av){

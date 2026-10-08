@@ -2,11 +2,7 @@
 #pragma once
 
 #include "Material.h"
-#include "RankFourTensor.h"
-#include "RankTwoTensor.h"
 #include "MathUtils.h"
-#include "RankFourTensor.h"
-#include <vector>
 #include "ElasticityTensorTools.h"
 #include "MooseUtils.h"
 #include "DistributionInterface.h"

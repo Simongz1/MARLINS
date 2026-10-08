@@ -113,6 +113,7 @@ protected:
 
   const bool _exp_approx;
   const bool _penalize_shear;
+  const std::string _stress_model;
 
   //for artificial viscosity
 
