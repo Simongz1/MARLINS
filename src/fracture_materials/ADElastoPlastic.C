@@ -323,9 +323,17 @@ ADElastoPlastic::computeQpStress()
 
   //check whether we want artificial viscosity
   if (_use_av){
+    //obtain artificial viscosity
     const ADReal p_av = computeAVPressure();
     (*_p_av)[_qp] = -p_av;
-    _stress[_qp] -= p_av * I;
+
+    //convert artificial viscosity to cauchy or PK1 based on configuration selection
+    if (_stress_model == "cauchy"){
+      _stress[_qp] -= p_av * I;
+    }else{
+      //transform to PK1
+      _stress[_qp] -= _J[_qp] * p_av * I * _F[_qp].inverse().transpose();
+    }
   }
 }
 
