@@ -167,7 +167,8 @@ ADElastoPlastic::initQpStatefulProperties()
   _Hist[_qp] = 0.0;
   _F_incremental[_qp].setToIdentity();
 
-  //initialize viscoplastic internal deformation gradient
+  //initialize the elastic jacobian here
+  _Je[_qp] = _Fe[_qp].det();
 
 }
 
@@ -276,11 +277,11 @@ ADElastoPlastic::computeQpStress()
 
       //compute needed stuff after
       _Cp[_qp] = _Fp[_qp].transpose() * _Fp[_qp];
-    }
-
-    _Je[_qp] = _Fe[_qp].det();
-    
+    } 
   }
+
+  //assign the elastic jacobian here 
+  _Je[_qp] = _Fe[_qp].det();
 
   //compute the actual stress here after correction has been applied
   //here, recomputed using the specific branch
@@ -509,9 +510,14 @@ ADElastoPlastic::computeFlowDirection(const ADRankTwoTensor & cauchy_stress, con
     const ADRankTwoTensor sdev = s.deviatoric();
 
     //compute flow direction
-    const ADReal snorm = MetaPhysicL::sqrt(sdev.doubleContraction(sdev));
-    const ADRankTwoTensor flow_direction = MooseUtils::absoluteFuzzyEqual(snorm, ADReal(0)) ? std::sqrt(1. / 2.) * I
-                                                          : std::sqrt(3. / 2.) * sdev / snorm;
+    const ADReal snorm_squared = sdev.doubleContraction(sdev);
+    
+    ADRankTwoTensor flow_direction; flow_direction.zero();
+    
+    if (MetaPhysicL::raw_value(snorm_squared) > 0.0){
+      const ADReal snorm = MetaPhysicL::sqrt(snorm_squared);
+      flow_direction = std::sqrt(1.5) * sdev / snorm;
+    }
           
     return {flow_direction, sdev};
   }

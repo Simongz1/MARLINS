@@ -21,4 +21,7 @@ private:
     const MaterialPropertyName _bulk_modulus_name;
     const ADMaterialProperty<Real> &_thermal_expansion;
     const ADMaterialProperty<Real> &_bulk_modulus;
+    //
+    const std::string _constitutive_model;
+    const ADMaterialProperty<RankFourTensor> * const _elasticity_tensor;
 };
