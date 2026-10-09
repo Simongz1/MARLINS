@@ -69,6 +69,7 @@ protected:
   ADMaterialProperty<RankTwoTensor> &_F;
   const MaterialProperty<RankTwoTensor> & _F_old;
   ADMaterialProperty<Real> &_J;
+  ADMaterialProperty<Real> &_Je;
   const MaterialProperty<Real> &_J_old;
 
   ADMaterialProperty<RankTwoTensor> &_Fe;
@@ -124,6 +125,8 @@ protected:
   const MaterialProperty<Real> &_h_min;
   const MaterialPropertyName &_density_name;
   const ADMaterialProperty<Real> &_density;
+  ADMaterialProperty<Real> * const _p_av;
+  
   const std::string _constitutive_model;
   const MaterialPropertyName &_elasticity_tensor_name;
 

@@ -65,6 +65,7 @@ ADElastoPlastic::ADElastoPlastic(
     _F(declareADProperty<RankTwoTensor>("F")),
     _F_old(getMaterialPropertyOld<RankTwoTensor>("F")),
     _J(declareADProperty<Real>("J")),
+    _Je(declareADProperty<Real>("Je")),
     _J_old(getMaterialPropertyOld<Real>("J")),
 
     _Fe(declareADProperty<RankTwoTensor>("Fe")),
@@ -125,6 +126,7 @@ ADElastoPlastic::ADElastoPlastic(
     _h_min(getMaterialPropertyByName<Real>(_h_min_name)),
     _density_name(getParam<MaterialPropertyName>("density_name")),
     _density(getADMaterialPropertyByName<Real>(_density_name)),
+    _p_av(_use_av ? &declareADProperty<Real>("p_av") : nullptr),
 
     //for particle model
     _constitutive_model(getParam<std::string>("constitutive_model")),
@@ -275,6 +277,9 @@ ADElastoPlastic::computeQpStress()
       //compute needed stuff after
       _Cp[_qp] = _Fp[_qp].transpose() * _Fp[_qp];
     }
+
+    _Je[_qp] = _Fe[_qp].det();
+    
   }
 
   //compute the actual stress here after correction has been applied
@@ -317,7 +322,9 @@ ADElastoPlastic::computeQpStress()
 
   //check whether we want artificial viscosity
   if (_use_av){
-    _stress[_qp] -= computeAVPressure() * I;
+    const ADReal p_av = computeAVPressure();
+    (*_p_av)[_qp] = -p_av;
+    _stress[_qp] -= p_av * I;
   }
 }
 

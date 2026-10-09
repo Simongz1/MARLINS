@@ -23,8 +23,8 @@ ADCompressionHeating::ADCompressionHeating(const InputParameters & parameters)
     //
     _thermal_expansion_name(getParam<MaterialPropertyName>("thermal_expansion_name")),
     _bulk_modulus_name(getParam<MaterialPropertyName>("bulk_modulus_name")),
-    _thermal_expansion(declareADProperty<Real>(_thermal_expansion_name)),
-    _bulk_modulus(declareADProperty<Real>(_bulk_modulus_name))
+    _thermal_expansion(getADMaterialPropertyByName<Real>(_thermal_expansion_name)),
+    _bulk_modulus(getADMaterialPropertyByName<Real>(_bulk_modulus_name))
 {}
 
 void

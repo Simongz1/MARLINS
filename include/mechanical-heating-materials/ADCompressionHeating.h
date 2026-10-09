@@ -19,6 +19,6 @@ private:
     //
     const MaterialPropertyName _thermal_expansion_name;
     const MaterialPropertyName _bulk_modulus_name;
-    ADMaterialProperty<Real> &_thermal_expansion;
-    ADMaterialProperty<Real> &_bulk_modulus;
+    const ADMaterialProperty<Real> &_thermal_expansion;
+    const ADMaterialProperty<Real> &_bulk_modulus;
 };
