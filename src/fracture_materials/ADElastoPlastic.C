@@ -474,11 +474,17 @@ ADElastoPlastic::computeFlowDirection(const ADRankTwoTensor & cauchy_stress, con
     const ADRankTwoTensor kirchhoff = _J[_qp] * cauchy_stress;
     //compute the trial deviatoric kirchhoff stress: INDEPENDENT
     const ADRankTwoTensor s = kirchhoff.deviatoric();
-    const ADReal snorm = MetaPhysicL::sqrt(s.doubleContraction(s));
 
-    const ADRankTwoTensor flow_direction = MooseUtils::absoluteFuzzyEqual(snorm, ADReal(0)) ? std::sqrt(1. / 2.) * I
-                                                          : std::sqrt(3. / 2.) * s / snorm;
-          
+    const ADReal snorm_squared = s.doubleContraction(s);
+    ADRankTwoTensor flow_direction;
+    flow_direction.zero();
+
+    if (MetaPhysicL::raw_value(snorm_squared) > 0.0)
+    {
+      const ADReal snorm = MetaPhysicL::sqrt(snorm_squared);
+      flow_direction = std::sqrt(1.5) * s / snorm;
+    }
+
     return {flow_direction, s};
   }
   if (_constitutive_model == "SVK"){
