@@ -1,5 +1,6 @@
 #include "PolycrystalDensityUO.h"
 #include "Function.h"
+#include "MooseApp.h"
 
 registerMooseObject("mlApp", PolycrystalDensityUO);
 
@@ -88,6 +89,13 @@ PolycrystalDensityUO::PolycrystalDensityUO(const InputParameters & params)
 
 void
 PolycrystalDensityUO::initialSetup(){
+
+  //add guardrail for reinitialization
+  if (_app.isRecovering() || _app.isRestarting()){
+    mooseInfo("PolycrystalDensityUO is recovering or restarting, skipping initialSetup");
+    return;
+  }
+
   // Generate Voronoi centers once before AuxVariables initialize
   const BoundingBox bbox = MeshTools::create_bounding_box(_fe_problem.mesh().getMesh());
   const Point min_corner = bbox.min();
