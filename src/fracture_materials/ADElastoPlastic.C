@@ -46,6 +46,10 @@ ADElastoPlastic::validParams()
   params.addParam<MaterialPropertyName>("viscoplastic_rate_exponent_name", "vp_rate_exponent", "name of the material property storing the viscoplastic rate exponent");
   params.addParam<MaterialPropertyName>("viscoplastic_yield_function_name", "vp_f", "name of the material property storing the viscoplastic yield function");
   params.addParam<MaterialPropertyName>("xi_name", "xi", "name of the material property that determines pressure dependence in viscoplastic flow");
+
+  //parameter to enable thermal expansion contribution
+  params.addParam<bool>("thermal_expansion", true, "whether to include thermal expansion in the stress calculation");
+  params.addParam<MaterialPropertyName>("thermal_expansion_coefficient_name", "thermal_expansion_coefficient", "name of the thermal expansion coefficient");
   return params;
 }
 
@@ -67,6 +71,13 @@ ADElastoPlastic::ADElastoPlastic(
     _J(declareADProperty<Real>("J")),
     _Je(declareADProperty<Real>("Je")),
     _J_old(getMaterialPropertyOld<Real>("J")),
+
+    //declare plastic and thermal jacobians
+    _Jp(declareADProperty<Real>("Jp")),
+    _Jp_old(getMaterialPropertyOld<Real>("Jp")),
+    _Jth(declareADProperty<Real>("Jth")),
+    _Jth_old(getMaterialPropertyOld<Real>("Jth")),
+    _lambda_th(declareADProperty<Real>("lambda_th")),
 
     _Fe(declareADProperty<RankTwoTensor>("Fe")),
     _Fp(declareADProperty<RankTwoTensor>("Fp")),
@@ -146,7 +157,14 @@ ADElastoPlastic::ADElastoPlastic(
     _vp_yield_function_name(getParam<MaterialPropertyName>("viscoplastic_yield_function_name")),
     _vp_yield_function(_viscoplastic ? &getADMaterialPropertyByName<Real>(_vp_yield_function_name) : nullptr),
     _xi_name(getParam<MaterialPropertyName>("xi_name")),
-    _xi(_viscoplastic ? &getADMaterialPropertyByName<Real>(_xi_name) : nullptr)
+    _xi(_viscoplastic ? &getADMaterialPropertyByName<Real>(_xi_name) : nullptr),
+
+    //thermal expansion parameters
+    _thermal_expansion(getParam<bool>("thermal_expansion")),
+    _thermal_expansion_coefficient_name(getParam<MaterialPropertyName>("thermal_expansion_coefficient_name")),
+    _thermal_expansion_coefficient(_thermal_expansion ? &getADMaterialPropertyByName<Real>(_thermal_expansion_coefficient_name) : nullptr),
+    _reference_temperature(declareADProperty<Real>("reference_temperature")),
+    _reference_temperature_old(getMaterialPropertyOld<Real>("reference_temperature"))
 {}
 
 void
@@ -168,13 +186,30 @@ ADElastoPlastic::initQpStatefulProperties()
   _F_incremental[_qp].setToIdentity();
 
   //initialize the elastic jacobian here
-  _Je[_qp] = _Fe[_qp].det();
+  _J[_qp] = 1.0;
+  _Je[_qp] = 1.0;
+  _Jp[_qp] = 1.0;
+  _Jth[_qp] = 1.0;
 
+  //initialize reference temperature
+  _reference_temperature[_qp] = _T[_qp];
 }
 
 void
 ADElastoPlastic::computeQpStress()
 {
+  //keep reference temperature stateful
+  _reference_temperature[_qp] = _reference_temperature_old[_qp];
+
+  //apply thermal expansion here
+  if (_thermal_expansion){
+    //compute thermal contribution
+    _Jth[_qp] = MetaPhysicL::exp(3.0 * (*_thermal_expansion_coefficient)[_qp] * (_T[_qp] - _reference_temperature[_qp]));
+  }
+
+  //precompute thermal correction to be used everywhere
+  _lambda_th[_qp] = _thermal_expansion ? MetaPhysicL::cbrt(_Jth_old[_qp] / _Jth[_qp]) : 1.0;
+
   //incremental update
   const ADRankTwoTensor I = ADRankTwoTensor::Identity();
 
@@ -207,7 +242,9 @@ ADElastoPlastic::computeQpStress()
 
     //form trial state
     ADRankTwoTensor trial_cauchy; trial_cauchy.zero();
-    ADRankTwoTensor Fe_trial = _F_incremental[_qp] * _Fe_old[_qp];
+
+    //branch for thermal expansion
+    ADRankTwoTensor Fe_trial = _lambda_th[_qp] * _F_incremental[_qp] * _Fe_old[_qp];
 
     //check whether we are using SVK or NH
     if (_constitutive_model == "NH"){
@@ -268,12 +305,12 @@ ADElastoPlastic::computeQpStress()
       }
 
       _Fp[_qp] = Q * sqrt_diag * Q.transpose();
-      _Fe[_qp] = _F[_qp] * _Fp[_qp].inverse();
+      _Fe[_qp] = _F[_qp] * _Fp[_qp].inverse() / MetaPhysicL::cbrt(_Jth[_qp]);
     }
     else if (_constitutive_model == "SVK"){
       //reconstruct updated elastic deformation gradient
       _Fe[_qp] = Fe_trial * truncExp(-delta_ep * _Np[_qp]);
-      _Fp[_qp] = _Fe[_qp].inverse() * _F[_qp];
+      _Fp[_qp] = _Fe[_qp].inverse() * _F[_qp] / MetaPhysicL::cbrt(_Jth[_qp]);
 
       //compute needed stuff after
       _Cp[_qp] = _Fp[_qp].transpose() * _Fp[_qp];
@@ -354,7 +391,7 @@ ADElastoPlastic::computeReferenceResidual(const ADReal & effective_trial_stress,
   
   if (_constitutive_model == "SVK"){
     const ADRankTwoTensor I = ADRankTwoTensor::Identity();
-    const ADRankTwoTensor Fe_trial = _F_incremental[_qp] * _Fe_old[_qp];
+    const ADRankTwoTensor Fe_trial = _lambda_th[_qp] *_F_incremental[_qp] * _Fe_old[_qp];
     const ADRankTwoTensor Ce = Fe_trial.transpose() * Fe_trial;
     const ADRankTwoTensor Ee = 0.5 * (Ce - ADRankTwoTensor::Identity());
     const ADRankTwoTensor Se = (*_elasticity_tensor)[_qp] * Ee;
@@ -389,7 +426,7 @@ ADElastoPlastic::computeResidual(const ADReal & effective_trial_stress,
   if (_constitutive_model == "SVK"){
     //compute updated elastic deformation gradient
     const ADRankTwoTensor I = ADRankTwoTensor::Identity();
-    const ADRankTwoTensor Fe_trial = _F_incremental[_qp] * _Fe_old[_qp];
+    const ADRankTwoTensor Fe_trial = _lambda_th[_qp] *_F_incremental[_qp] * _Fe_old[_qp];
     ADRankTwoTensor Fe_update = Fe_trial * truncExp(-scalar * _Np[_qp]);
     ADRankTwoTensor Ce_update = Fe_update.transpose() * Fe_update;
     ADRankTwoTensor Ee_update = 0.5 * (Ce_update - I);
@@ -428,7 +465,7 @@ ADElastoPlastic::computeDerivative(const ADReal & /*effective_trial_stress*/,
   if (_constitutive_model == "SVK"){
     //same base stuff
     const ADRankTwoTensor I = ADRankTwoTensor::Identity();
-    const ADRankTwoTensor Fe_trial = _F_incremental[_qp] * _Fe_old[_qp];
+    const ADRankTwoTensor Fe_trial = _lambda_th[_qp] * _F_incremental[_qp] * _Fe_old[_qp];
     ADRankTwoTensor Fe_update = Fe_trial * truncExp(-scalar * _Np[_qp]);
     ADRankTwoTensor Ce_update = Fe_update.transpose() * Fe_update;
     ADRankTwoTensor Ee_update = 0.5 * (Ce_update - I);
@@ -801,7 +838,7 @@ ADElastoPlastic::viscoPlasticUpdate(){
   const ADRankTwoTensor I = ADRankTwoTensor::Identity();
 
   //step 1: compute trial elastic stress from trial elastic deformation gradient
-  const ADRankTwoTensor Fe_trial = _F_incremental[_qp] * _Fe_old[_qp];
+  const ADRankTwoTensor Fe_trial = _lambda_th[_qp] * _F_incremental[_qp] * _Fe_old[_qp];
   _Fe[_qp] = Fe_trial;
   const ADReal Je_trial = Fe_trial.det();
   const ADRankTwoTensor be_bar_trial = MetaPhysicL::pow(Je_trial, -2.0 / 3.0) * Fe_trial * Fe_trial.transpose();
@@ -850,8 +887,8 @@ ADElastoPlastic::viscoPlasticUpdate(){
   _Fp[_qp] = Fp_incremental_inverse.inverse() * _Fp_old[_qp];
 
   //update the elastic deformation gradient back with the newly computed platic
-  _Fe[_qp] = _F[_qp] * _Fp[_qp].inverse();
-  
+  _Fe[_qp] = _F[_qp] * _Fp[_qp].inverse() / MetaPhysicL::cbrt(_Jth[_qp]);
+
   //recompute stress with this elastic deformation gradient
   const ADReal Je_final = _Fe[_qp].det();
   const ADReal Jp_final = _Fp[_qp].det();
@@ -865,5 +902,23 @@ ADElastoPlastic::viscoPlasticUpdate(){
   _Cp[_qp] = _Fp[_qp].transpose() * _Fp[_qp];
   _Np[_qp] = N_trial;
 }
-          
+
+//define an explicit exponential function
+
+ADRankTwoTensor
+ADElastoPlastic::exp(const ADRankTwoTensor & x){
+  
+  //eigen decomposition
+  ADRankTwoTensor Q;
+  std::vector<ADReal> lam(3);
+  x.symmetricEigenvaluesEigenvectors(lam, Q);
+
+  //reconstruct exponential
+  ADRankTwoTensor expDiag; expDiag.zero();
+  for (unsigned int i = 0; i < 3; ++i){
+    expDiag(i, i) = MetaPhysicL::exp(lam[i]);
+  }
+
+  return Q * expDiag * Q.transpose();
+}
 //END

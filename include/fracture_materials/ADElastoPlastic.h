@@ -54,6 +54,7 @@ protected:
   virtual ADReal braketDerivative(const ADReal & x);
   virtual ADRankTwoTensor truncExp(const ADRankTwoTensor & x);
   virtual ADRankTwoTensor truncExpDerivative(const ADRankTwoTensor & x);
+  virtual ADRankTwoTensor exp(const ADRankTwoTensor & x);
 
   virtual void viscoPlasticUpdate();
 
@@ -71,6 +72,11 @@ protected:
   ADMaterialProperty<Real> &_J;
   ADMaterialProperty<Real> &_Je;
   const MaterialProperty<Real> &_J_old;
+  ADMaterialProperty<Real> &_Jp;
+  const MaterialProperty<Real> &_Jp_old;
+  ADMaterialProperty<Real> &_Jth;
+  const MaterialProperty<Real> &_Jth_old;
+  ADMaterialProperty<Real> &_lambda_th;
 
   ADMaterialProperty<RankTwoTensor> &_Fe;
   ADMaterialProperty<RankTwoTensor> &_Fp;
@@ -143,6 +149,13 @@ protected:
   const ADMaterialProperty<Real> * const _vp_yield_function;
   const MaterialPropertyName &_xi_name;
   const ADMaterialProperty<Real> * const _xi;
+
+  //thermal expansion
+  const bool _thermal_expansion;
+  const MaterialPropertyName &_thermal_expansion_coefficient_name;
+  const ADMaterialProperty<Real> * const _thermal_expansion_coefficient;
+  ADMaterialProperty<Real> &_reference_temperature;
+  const MaterialProperty<Real> &_reference_temperature_old;
 
 private:
     //nothing here
