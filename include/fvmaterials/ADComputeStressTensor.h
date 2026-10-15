@@ -9,18 +9,28 @@ public:
     static InputParameters validParams();
     ADComputeStressTensor(const InputParameters & params);
 protected:
-    // const Moose::Functor<ADReal> &_rhoX_x;
-    // const Moose::Functor<ADReal> &_rhoX_y;
-    // const Moose::Functor<ADReal> &_rhoX_z;
-    const Moose::Functor<ADReal> &_X00;
-    const Moose::Functor<ADReal> &_X01;
-    const Moose::Functor<ADReal> &_X02;
-    const Moose::Functor<ADReal> &_X10;
-    const Moose::Functor<ADReal> &_X11;
-    const Moose::Functor<ADReal> &_X12;
-    const Moose::Functor<ADReal> &_X20;
-    const Moose::Functor<ADReal> &_X21;
-    const Moose::Functor<ADReal> &_X22;
+    //velocity components
+    const Moose::Functor<ADReal> &_vx;
+    const Moose::Functor<ADReal> &_vy;
+    const Moose::Functor<ADReal> &_vz;
+    const std::string _velocity_gradient_name;
+
+    //deformation gradient components
+    const Moose::Functor<ADReal> &_F_00;
+    const Moose::Functor<ADReal> &_F_01;
+    const Moose::Functor<ADReal> &_F_02;
+    const Moose::Functor<ADReal> &_F_10;
+    const Moose::Functor<ADReal> &_F_11;
+    const Moose::Functor<ADReal> &_F_12;
+    const Moose::Functor<ADReal> &_F_20;
+    const Moose::Functor<ADReal> &_F_21;
+    const Moose::Functor<ADReal> &_F_22;
+
+    //names of the functors
+    const std::string _lambda_name;
+    const std::string _mu_name;
+    const std::string _momentum_vector_name;
+    const std::string _density_name;
     const Moose::Functor<ADReal> &_lambda;
     const Moose::Functor<ADReal> &_mu;
     const Moose::Functor<ADRealVectorValue> &_m;

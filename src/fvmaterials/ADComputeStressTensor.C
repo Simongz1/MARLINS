@@ -3,7 +3,6 @@
 #include "SystemBase.h"
 #include <cmath>
 #include "MathFVUtils.h"
-#include <type_traits>
 #include "MooseFunctorArguments.h"
 #include "FaceInfo.h"
 
@@ -13,21 +12,25 @@ InputParameters
 ADComputeStressTensor::validParams(){
 
     InputParameters params = FunctorMaterial::validParams();
-    params.addClassDescription("reconstructs the Lagrangian deformation gradient from the partial gradients of each component of the inverse map field");
+    params.addClassDescription("contructs stress from an advected update of the deformation gradient");
 
-    //request the full material point position vector
-    // params.addRequiredParam<MooseFunctorName>("rhoX_x_name", "name of the material point position vector multiplied by the density in the x direction");
-    // params.addRequiredParam<MooseFunctorName>("rhoX_y_name", "name of the material point position vector multiplied by the density in the y direction");
-    // params.addRequiredParam<MooseFunctorName>("rhoX_z_name", "name of the material point position vector multiplied by the density in the z direction");
-    params.addParam<MooseFunctorName>("X00", "X00", "name of the 00 component of the inverse deformation gradient");
-    params.addParam<MooseFunctorName>("X01", "X01", "name of the 01 component of the inverse deformation gradient");
-    params.addParam<MooseFunctorName>("X02", "X02", "name of the 02 component of the inverse deformation gradient");
-    params.addParam<MooseFunctorName>("X10", "X10", "name of the 10 component of the inverse deformation gradient");
-    params.addParam<MooseFunctorName>("X11", "X11", "name of the 11 component of the inverse deformation gradient");
-    params.addParam<MooseFunctorName>("X12", "X12", "name of the 12 component of the inverse deformation gradient");
-    params.addParam<MooseFunctorName>("X20", "X20", "name of the 20 component of the inverse deformation gradient");
-    params.addParam<MooseFunctorName>("X21", "X21", "name of the 21 component of the inverse deformation gradient");
-    params.addParam<MooseFunctorName>("X22", "X22", "name of the 22 component of the inverse deformation gradient");
+    //request velocity
+    params.addRequiredParam<MooseFunctorName>("vx", "velocity in x direction");
+    params.addRequiredParam<MooseFunctorName>("vy", "velocity in y direction");
+    params.addRequiredParam<MooseFunctorName>("vz", "velocity in z direction");
+
+    params.addParam<MooseFunctorName>("velocity_gradient_name", "velocity_gradient", "base name for the velocity gradient row functors (suffixes _row1, _row2, _row3)");
+
+    //request the 9 comopnents of the deformation gradient
+    params.addRequiredParam<MooseFunctorName>("F_00", "deformation gradient component 00");
+    params.addRequiredParam<MooseFunctorName>("F_01", "deformation gradient component 01");
+    params.addRequiredParam<MooseFunctorName>("F_02", "deformation gradient component 02");
+    params.addRequiredParam<MooseFunctorName>("F_10", "deformation gradient component 10");
+    params.addRequiredParam<MooseFunctorName>("F_11", "deformation gradient component 11");
+    params.addRequiredParam<MooseFunctorName>("F_12", "deformation gradient component 12");
+    params.addRequiredParam<MooseFunctorName>("F_20", "deformation gradient component 20");
+    params.addRequiredParam<MooseFunctorName>("F_21", "deformation gradient component 21");
+    params.addRequiredParam<MooseFunctorName>("F_22", "deformation gradient component 22");
 
     params.addRequiredParam<MooseFunctorName>("lambda_name", "name of the lambda lame constant");
     params.addRequiredParam<MooseFunctorName>("mu_name", "name of the mu lame constant");
@@ -44,86 +47,111 @@ ADComputeStressTensor::validParams(){
     params.addRequiredParam<MooseFunctorName>("T_row1_name", "name of the mechanical flux tensor component in the x direction");
     params.addRequiredParam<MooseFunctorName>("T_row2_name", "name of the mechanical flux tensor component in the y direction");
     params.addRequiredParam<MooseFunctorName>("T_row3_name", "name of the mechanical flux tensor component in the z direction");
-    params.addParam<std::string>("strain_type", "small_strain", "type of strain formulation");
-
     return params;
 }
 
 ADComputeStressTensor::ADComputeStressTensor(const InputParameters &params)
     : FunctorMaterial(params),
 
+    //retrieve velocity and gradients
+    _vx(getFunctor<ADReal>("vx")),
+    _vy(getFunctor<ADReal>("vy")),
+    _vz(getFunctor<ADReal>("vz")),
+    _velocity_gradient_name(getParam<MooseFunctorName>("velocity_gradient_name")),
+
     //obtain the 9 components
-      _X00(getFunctor<ADReal>("X00")),
-      _X01(getFunctor<ADReal>("X01")),
-      _X02(getFunctor<ADReal>("X02")),
-      _X10(getFunctor<ADReal>("X10")),
-      _X11(getFunctor<ADReal>("X11")),
-      _X12(getFunctor<ADReal>("X12")),
-      _X20(getFunctor<ADReal>("X20")),
-      _X21(getFunctor<ADReal>("X21")),
-      _X22(getFunctor<ADReal>("X22")),
-      _lambda(getFunctor<ADReal>("lambda_name")),
-      _mu(getFunctor<ADReal>("mu_name")),
-      _m(getFunctor<ADRealVectorValue>("momentum_vector_name")),
-      _rho(getFunctor<ADReal>("density_name")),
-      _strain_type(getParam<std::string>("strain_type"))
-{   
+    //retrieve names
+    _F_00(getFunctor<ADReal>("F_00")),
+    _F_01(getFunctor<ADReal>("F_01")),
+    _F_02(getFunctor<ADReal>("F_02")),
+    _F_10(getFunctor<ADReal>("F_10")),
+    _F_11(getFunctor<ADReal>("F_11")),
+    _F_12(getFunctor<ADReal>("F_12")),
+    _F_20(getFunctor<ADReal>("F_20")),
+    _F_21(getFunctor<ADReal>("F_21")),
+    _F_22(getFunctor<ADReal>("F_22")),
+
+    //rest
+    _lambda_name(getParam<MooseFunctorName>("lambda_name")),
+    _mu_name(getParam<MooseFunctorName>("mu_name")),
+    _momentum_vector_name(getParam<MooseFunctorName>("momentum_vector_name")),
+    _density_name(getParam<MooseFunctorName>("density_name")),
+    _lambda(getFunctorByName<ADReal>(_lambda_name)),
+    _mu(getFunctorByName<ADReal>(_mu_name)),
+    _m(getFunctorByName<ADRealVectorValue>(_momentum_vector_name)),
+    _rho(getFunctorByName<ADReal>(_density_name))
+{
+
+    //define an explicit functor that computes the updated deformation gradient
+    auto computeVelocityGradient = [this](const auto & r, const auto & state) -> ADRankTwoTensor{
+
+        //obtain the velocity gradient components
+        const ADRealVectorValue gradvx = _vx.gradient(r, state);
+        const ADRealVectorValue gradvy = _vy.gradient(r, state);
+        const ADRealVectorValue gradvz = _vz.gradient(r, state);
+
+        //assemble the velocity gradient
+        ADRankTwoTensor L;
+        L(0,0) = gradvx(0); L(0,1) = gradvx(1); L(0,2) = gradvx(2);
+        L(1,0) = gradvy(0); L(1,1) = gradvy(1); L(1,2) = gradvy(2);
+        L(2,0) = gradvz(0); L(2,1) = gradvz(1); L(2,2) = gradvz(2);
+
+        return L;
+    };
+
+    // Expose tensor rows using the vector type supported by functor properties.
+    for (unsigned int row = 0; row < 3; ++row)
+        addFunctorProperty<ADRealVectorValue>(
+            _velocity_gradient_name + "_row" + std::to_string(row + 1),
+            [computeVelocityGradient, row](const auto & r, const auto & state) -> ADRealVectorValue{
+                const ADRankTwoTensor L = computeVelocityGradient(r, state);
+                return ADRealVectorValue(L(row, 0), L(row, 1), L(row, 2));
+            });
 
     //for a lambda that creates stress internally
-    auto computeFullStressTensor = [this](const auto & r, const auto & state) -> ADRankTwoTensor{
+    auto computeFullStressTensor = [this, computeVelocityGradient](const auto & r, const auto & state) -> ADRankTwoTensor{
         //obtain individual components of the inverse deformation gradient
-        const ADReal X00 = _X00(r, state);
-        const ADReal X01 = _X01(r, state);
-        const ADReal X02 = _X02(r, state);
-        const ADReal X10 = _X10(r, state);
-        const ADReal X11 = _X11(r, state);
-        const ADReal X12 = _X12(r, state);
-        const ADReal X20 = _X20(r, state);
-        const ADReal X21 = _X21(r, state);
-        const ADReal X22 = _X22(r, state);
+        const ADReal F_00 = _F_00(r, state);
+        const ADReal F_01 = _F_01(r, state);
+        const ADReal F_02 = _F_02(r, state);
+        const ADReal F_10 = _F_10(r, state);
+        const ADReal F_11 = _F_11(r, state);
+        const ADReal F_12 = _F_12(r, state);
+        const ADReal F_20 = _F_20(r, state);
+        const ADReal F_21 = _F_21(r, state);
+        const ADReal F_22 = _F_22(r, state);
 
-        //assemble the full inverse deformation gradient
+        //assemble X, being the advected deformation gradient from spatial to current configurations
         ADRankTwoTensor X;
-        X(0,0) = X00; X(0,1) = X01; X(0,2) = X02;
-        X(1,0) = X10; X(1,1) = X11; X(1,2) = X12;
-        X(2,0) = X20; X(2,1) = X21; X(2,2) = X22;
+        X(0,0) = F_00; X(0,1) = F_01; X(0,2) = F_02;
+        X(1,0) = F_10; X(1,1) = F_11; X(1,2) = F_12;
+        X(2,0) = F_20; X(2,1) = F_21; X(2,2) = F_22;
 
-        //form actual deformation gradient
-        ADRankTwoTensor I; I.setToIdentity();  
+        //form the new deformation gradient from the velocity gradient
+        //and a first order approximation
+
+        const ADRankTwoTensor L = computeVelocityGradient(r, state);
+
+        //use the advected deformation gradient as the "old" configuration
+
+        const ADRankTwoTensor F = X + L * X * _dt;
+
+        //use this computed deformation gradient to obtain stress
+        ADRankTwoTensor I; I.setToIdentity();
 
         //obtain constants
         const ADReal lambda = _lambda(r, state);
         const ADReal mu = _mu(r, state);
 
-        ADRankTwoTensor stress;
+        //compute right cauchy green deformation tensor
+        const ADRankTwoTensor C = F * F.transpose();
+        const ADRankTwoTensor E = 0.5 * (C - I);
 
-        if (_strain_type == "small_strain"){
-            ADRankTwoTensor epsilon = 0.5 * (X + X.transpose()) - I;
+        //compute stress
+        const ADReal traceE = E.trace();
 
-            //stress from small strain
-            stress = lambda * epsilon.trace() * I + 2 * mu * epsilon;
-        }
-        else if (_strain_type == "large_strain"){
+        const ADRankTwoTensor stress = lambda * traceE * I + 2.0 * mu * E;
 
-            //obtain deformation gradient
-            ADRankTwoTensor F = X.inverse();
-
-            //compute jacobian of the deformation gradient
-            ADReal J = F.det();
-
-            //compute right cauchy green deformation tensor
-            ADRankTwoTensor Cinv = X * X.transpose();
-            
-            //compute second piola
-            ADRankTwoTensor PK2;
-            PK2 = lambda * MetaPhysicL::log(MetaPhysicL::max(J, 1e-6)) * Cinv + mu * (I - Cinv);
-
-            //compute cauchy stress
-            stress = (1. / J) * F * PK2 * F.transpose();
-        }
-        else {
-            mooseError("Strain has to be either large_strain (defualt), or small strain !!");
-        }
         return - stress;
     };
 
@@ -167,7 +195,7 @@ ADComputeStressTensor::ADComputeStressTensor(const InputParameters &params)
         });
 
     //now compute the full mechanical flux tensor and then expose components
-    
+
     //first, internally compute a full tensor
     auto computeMechanicalFluxTensor = [this, computeFullStressTensor](const auto & r, const auto & state) -> ADRankTwoTensor{
         //obtain the full stress tensor
