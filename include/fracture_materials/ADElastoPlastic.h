@@ -101,6 +101,10 @@ protected:
 
   MaterialBase * _flow_stress_material;
   const std::string _flow_stress_name;
+
+  MaterialBase * _flow_hardening_material;
+  const std::string _flow_hardening_name;
+
   ADMaterialProperty<Real> & _Hist;
   const MaterialProperty<Real> &_Hist_old;
   

@@ -1,5 +1,4 @@
 #include "ADElastoPlastic.h"
-
 #include <Eigen/LU>
 
 registerMooseObject("mlApp", ADElastoPlastic);
@@ -10,7 +9,8 @@ ADElastoPlastic::validParams()
   InputParameters params = DerivativeMaterialInterface<ADComputeStressBase>::validParams();
   params += ADSingleVariableReturnMappingSolution::validParams();
   params.addClassDescription("Finite strain elasto-plastic response with fracture penalization from phase field model.");
-  params.addRequiredParam<MaterialName>("flow_stress_material","The material defining the flow stress");
+  params.addRequiredParam<MaterialName>("flow_stress_material", "The material defining the flow stress");
+  params.addRequiredParam<MaterialName>("flow_hardening_material", "The material defining the flow hardening function");
 
   //elastic properties
   params.addParam<MaterialPropertyName>("bulk_modulus_name", "bulk_modulus", "name of the bulk modulus");
@@ -105,6 +105,10 @@ ADElastoPlastic::ADElastoPlastic(
     _flow_stress_material(nullptr),
     _flow_stress_name("flow_stress"),
 
+    //replicate same approach for strain hardening flow function
+    _flow_hardening_material(nullptr),
+    _flow_hardening_name("flow_hardening"),
+
     //history and strain energy for fracture
     _Hist(declareADProperty<Real>("Hist")),
     _Hist_old(getMaterialPropertyOld<Real>("Hist")),
@@ -171,6 +175,9 @@ void
 ADElastoPlastic::initialSetup()
 {
   _flow_stress_material = &getMaterial("flow_stress_material");
+
+  //initialize here
+  _flow_hardening_material = &getMaterial("flow_hardening_material");
 }
 
 void
@@ -319,6 +326,7 @@ ADElastoPlastic::computeQpStress()
 
   //assign the elastic jacobian here 
   _Je[_qp] = _Fe[_qp].det();
+  _Jp[_qp] = _Fp[_qp].det();
 
   //compute the actual stress here after correction has been applied
   //here, recomputed using the specific branch
@@ -834,6 +842,11 @@ ADElastoPlastic::truncExpDerivative(const ADRankTwoTensor & x)
 void
 ADElastoPlastic::viscoPlasticUpdate(){
 
+  //preserve old accumulated plastic strain
+  _ep[_qp] = _ep_old[_qp];
+  _ep_dot[_qp] = 0.0;
+  _flow_hardening_material->computePropertiesAtQp(_qp);
+
   //derreference all pointers here
   const ADRankTwoTensor I = ADRankTwoTensor::Identity();
 
@@ -875,6 +888,9 @@ ADElastoPlastic::viscoPlasticUpdate(){
   const ADRankTwoTensor N_trial = std::sqrt(1.5) * A_trial / MetaPhysicL::sqrt(A_trial.doubleContraction(A_trial));
 
   //se this q value to compute lambda dot
+
+  //before calling vp_yield_function, call qp properties at the supplied material
+  _flow_hardening_material->computePropertiesAtQp(_qp);
   ADReal lambda_dot = (*_vp_reference_rate)[_qp] * MetaPhysicL::pow(q_trial / ((*_vp_flow_resistance)[_qp] * (*_vp_yield_function)[_qp]), (*_vp_rate_exponent)[_qp]);
 
   //update the plastic internal variable
