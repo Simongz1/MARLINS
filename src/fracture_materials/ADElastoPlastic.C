@@ -589,7 +589,7 @@ ADElastoPlastic::computeAVPressure()
 
   //compute sound speed
   const ADReal shear = (3.0 * _bulk[_qp]) * (1.0 - 2.0 * _poisson[_qp]) / (2.0 + 2.0 * _poisson[_qp]);
-  ADReal current_density = _density[_qp] / _J[_qp];
+  ADReal current_density = _density[_qp]; //density is passed as current value
   ADReal sound_speed = MetaPhysicL::sqrt((_bulk[_qp] + (4.0 / 3.0) * shear) / current_density);
 
   if (MetaPhysicL::raw_value(J_dot) >= 0.0){
