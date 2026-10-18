@@ -283,7 +283,7 @@ ADElastoPlastic::computeQpStress()
       returnMappingSolve(s_eff, delta_ep, _console);
     }
 
-    // Update intermediate and current configurations
+    //update intermediate and current configurations
     _ep[_qp] = _ep_old[_qp] + delta_ep;
     _ep_dot[_qp] = delta_ep / _dt;
 

@@ -31,6 +31,9 @@ ADPBXStress::validParams()
   params.addRequiredParam<Real>("R2_reacted", "R2_reacted");
   params.addRequiredParam<Real>("omega_reacted", "omega_reacted");
   params.addRequiredCoupledVar("temperature", "temperature");
+
+  //here we add a parameter to see whether we use MISTnetX or not
+  params.addParam<bool>("use_mistnetx", true, "indicator to use MISTnetX or not");
   return params;
 }
 
