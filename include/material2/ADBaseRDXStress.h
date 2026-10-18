@@ -103,7 +103,7 @@ protected:
   const ADMaterialProperty<RankTwoTensor> &_rotation_increment;
 
   ADMaterialProperty<Real> &_ss;
-  const ADVariableValue &_Yinitial;
+  const ADVariableValue &_Y1;
 
   ///equation of state parameters
   const Real _A_unreacted;
@@ -119,6 +119,7 @@ protected:
   const Real _omega_reacted;
   
   const ADVariableValue &_temperature;
+  
   const MaterialPropertyName &_cv_name;
   const ADMaterialProperty<Real> &_cv;
 

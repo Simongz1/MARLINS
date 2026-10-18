@@ -27,7 +27,7 @@ ADBaseRDXStress::validParams()
   params.addRequiredParam<Real>("R2_reacted", "R2_reacted");
   params.addRequiredParam<Real>("omega_reacted", "omega_reacted");
   params.addRequiredCoupledVar("temperature", "temperature");
-  params.addParam<MaterialPropertyName>("density_name", "density", "name of the density material");
+  params.addParam<MaterialPropertyName>("reference_density_name", "density", "name of the density material");
   params.addParam<MaterialPropertyName>("specific_heat_name", "specific_heat", "name of the specific heat material");
   return params;
 }
@@ -69,7 +69,7 @@ ADBaseRDXStress::ADBaseRDXStress(
     _dH(getMaterialPropertyDerivativeByName<Real>(_flow_stress_name, _ep_name)),
     _d2H(getMaterialPropertyDerivativeByName<Real>(_flow_stress_name, _ep_name, _ep_name)),
 
-    _rho_name(getParam<MaterialPropertyName>("density_name")),
+    _rho_name(getParam<MaterialPropertyName>("reference_density_name")),
     _rho(getADMaterialPropertyByName<Real>(_rho_name)),
     _C0(getParam<Real>("C0")),
     _C1(getParam<Real>("C1")),
@@ -105,7 +105,7 @@ ADBaseRDXStress::ADBaseRDXStress(
     _rotation_increment(getADMaterialProperty<RankTwoTensor>("rotation_increment")),
 
     _ss(declareADProperty<Real>("ss")),
-    _Yinitial(adCoupledValue("Yinitial")),
+    _Y1(adCoupledValue("Y1")),
 
     ////equation of state parameters
     _A_unreacted(getParam<Real>("A_unreacted")),
@@ -145,6 +145,7 @@ ADBaseRDXStress::initQpStatefulProperties()
   _Cp[_qp].setToIdentity();
   _F[_qp].setToIdentity();
   _Fhat[_qp].setToIdentity();
+  _J[_qp] = 1.0;
 }
 
 void
@@ -176,7 +177,7 @@ ADBaseRDXStress::computeQpStress()
   _be_bar[_qp] = f_bar * _be_bar_old[_qp] * f_bar.transpose();
 
   //form trial deviatoric stress
-  ADRankTwoTensor s = _Yinitial[_qp] * shear * _be_bar[_qp].deviatoric();
+  ADRankTwoTensor s = _Y1[_qp] * shear * _be_bar[_qp].deviatoric();
   ADReal snorm = MetaPhysicL::sqrt(s.doubleContraction(s));
   _Np[_qp] = MooseUtils::absoluteFuzzyEqual(snorm, ADReal(0)) ? std::sqrt(1. / 2.) * I2
                                                          : std::sqrt(3. / 2.) * s / snorm;
@@ -198,7 +199,7 @@ ADBaseRDXStress::computeQpStress()
   // Recompute the effective deviatoric stress after the plastic correction.
   // The return mapping is formulated for the homogenized material, so this
   // must use the same mixture shear modulus as the trial stress and residual.
-  ADRankTwoTensor s_corrected = _Yinitial[_qp] * shear * _be_bar[_qp].deviatoric();
+  ADRankTwoTensor s_corrected = _Y1[_qp] * shear * _be_bar[_qp].deviatoric();
     
   //compute plastic strain rate from radial return increment
   _ep_dot[_qp] = delta_ep / _dt;
@@ -254,11 +255,11 @@ ADBaseRDXStress::computeQpStress()
   //compute pressure for unreacted and reacted material
   _p_unreacted[_qp] = - computeJWLPressure(_A_unreacted, _B_unreacted, _R1_unreacted, _R2_unreacted, _omega_unreacted);
   _p_reacted[_qp] = - computeJWLPressure(_A_reacted, _B_reacted, _R1_reacted, _R2_reacted, _omega_reacted);
-  _p_mix[_qp] = _Yinitial[_qp] * _p_unreacted[_qp] + (1. - _Yinitial[_qp]) * _p_reacted[_qp];
+  _p_mix[_qp] = _Y1[_qp] * _p_unreacted[_qp] + (1. - _Y1[_qp]) * _p_reacted[_qp];
 
   //compute sound speed and bulk modulus from elasticity tensors
   //this is important for the case later on when we add anisotropic behaviour
-  const ADReal ss = MetaPhysicL::sqrt(_bulk[_qp] + ((4. / 3.) * shear) / (_rho[_qp] / _J[_qp]) );
+  const ADReal ss = MetaPhysicL::sqrt((_bulk[_qp] + (4.0 / 3.0) * shear) * _J[_qp] / _rho[_qp]);
   _ss[_qp] = ss;
 
   //compute artificial viscosity
@@ -266,6 +267,17 @@ ADBaseRDXStress::computeQpStress()
 
   //declare stress tensor for the RDX phase ONLY
   _stress[_qp] = s_corrected + _p_mix[_qp] * I;
+
+  //plastic heat source
+  //compute plastic velocity gradient
+  const ADRankTwoTensor Lp = Fp_dot * _Fp[_qp].inverse();
+
+  //compute rate of deformation tensor
+  const ADRankTwoTensor D = _Fe[_qp] * Lp * _Fe[_qp].inverse();
+  const ADRankTwoTensor dp = 0.5 * (D + D.transpose());
+  _HS_plastic[_qp] = _stress[_qp].doubleContraction(dp);
+
+  //add artificial viscosity after computing plastic dissipation heat source
   _stress[_qp] += _p_av[_qp] * I;
   _PK1[_qp] = _J[_qp] * _stress[_qp] * _F[_qp].inverse().transpose();
 
@@ -279,21 +291,12 @@ ADBaseRDXStress::computeQpStress()
   //compute heat sources here
 
   //heat source due to compression from the equation of state
-  const ADReal interpolated_omega = _Yinitial[_qp] * _omega_unreacted * (1.0 - _Yinitial[_qp]) * _omega_reacted;
-  const ADReal dp_dT = interpolated_omega * _rho[_qp] * _cv[_qp] * _temperature[_qp];
-  const ADReal q_eos = _temperature[_qp] * dp_dT * J_dot / _J[_qp];
-
-  //plastic heat source
-  //compute plastic velocity gradient
-  const ADRankTwoTensor Lp = Fp_dot * _Fp[_qp].inverse();
-
-  //compute rate of deformation tensor
-  const ADRankTwoTensor D = _Fe[_qp] * Lp * _Fe[_qp].inverse();
-  const ADRankTwoTensor dp = 0.5 * (D + D.transpose());
+  const ADReal interpolated_omega = _Y1[_qp] * _omega_unreacted + (1.0 - _Y1[_qp]) * _omega_reacted;
+  const ADReal dp_dT = interpolated_omega * (_rho[_qp] / _J[_qp]) * _cv[_qp];
+  const ADReal q_eos = - 1.0 * _temperature[_qp] * dp_dT * J_dot / _J[_qp];
 
   //contract with cauchy stress and save both values
   _HS_elastic[_qp] = q_eos;
-  _HS_plastic[_qp] = _stress[_qp].doubleContraction(dp);
 }
 
 Real
@@ -302,7 +305,7 @@ ADBaseRDXStress::computeReferenceResidual(const ADReal & effective_trial_stress,
 {
   const ADReal shear = (3.0 * _bulk[_qp]) * (1.0 - 2.0 * _poisson[_qp]) / (2.0 + 2.0 * _poisson[_qp]);
   return MetaPhysicL::raw_value(
-      effective_trial_stress - _Yinitial[_qp] * shear * scalar * _be_bar[_qp].trace());
+      effective_trial_stress - _Y1[_qp] * shear * scalar * _be_bar[_qp].trace());
 }
 
 ADReal
@@ -316,7 +319,7 @@ ADBaseRDXStress::computeResidual(const ADReal & effective_trial_stress,
   
   //here we require an exact coupling between Y and the defradation of the yield surface
   //we coupld possibly define degradation functions as in phase field
-  return (effective_trial_stress - _Yinitial[_qp] * shear * scalar * _be_bar[_qp].trace() - _H[_qp]);
+  return (effective_trial_stress - _Y1[_qp] * shear * scalar * _be_bar[_qp].trace() - _H[_qp]);
 }
 
 ADReal
@@ -328,7 +331,7 @@ ADBaseRDXStress::computeDerivative(const ADReal & /*effective_trial_stress*/,
   _ep[_qp] = _ep_old[_qp] + scalar;
   _flow_stress_material->computePropertiesAtQp(_qp);
 
-  return (-_Yinitial[_qp] * shear * _be_bar[_qp].trace() - _dH[_qp]);
+  return (-_Y1[_qp] * shear * _be_bar[_qp].trace() - _dH[_qp]);
 }
 
 ADReal
