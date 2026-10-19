@@ -2,13 +2,24 @@ import pandas as pd
 import numpy as np
 import subprocess as su
 from pathlib import Path
+import argparse
 import yaml
-import sys
+
+from case_naming import format_shock_velocity, with_shock_velocity
+
+parser = argparse.ArgumentParser(
+    description="Generate a MOOSE input file from a YAML configuration."
+)
+parser.add_argument(
+    "config",
+    type=Path,
+    help="Path to the YAML configuration file",
+)
+args = parser.parse_args()
 
 #provide dataframe with all the data for distributions
 df = pd.read_csv('./csv/distributions.csv')
-config_path = input('Provide the name of the yaml file: ')
-config_path = Path(config_path)
+config_path = args.config
 
 with config_path.open('r') as f:
     config = yaml.safe_load(f) or {}
@@ -20,14 +31,14 @@ def moose_bool(value):
     return 'true' if truthy(value) else 'false'
 
 #define simulation dimension
-dim = str(config.get('dim', '2D'))
-vel = float(config.get('vel', 1.75))
-elemsize = np.array(config.get('elemsize', [1.0, 1.9]), dtype=float)
-check_frec = config.get('check_frec', 0.5)
+dim = str(config.get('dim', config.get('dimension', '2D')))
+vel = float(config.get('vel', config.get('impactVelocity', 1.75)))
+elemsize = np.array(config.get('elemsize', config.get('elementSize', [1.0, 1.9])), dtype=float)
+check_frec = config.get('check_frec', config.get('checkFrec', 2000))
 full_outputs = config.get('full_outputs', 'YES')
 
 #query PBX or random
-pbx = str(config.get('pbx', 'PBX')).upper()
+pbx = str(config.get('type', 'PBX'))
 
 match pbx:
     case 'PBX':
@@ -45,7 +56,7 @@ match pbx:
         use_mixture = config.get('use_mixture', True)
         binder_properties = np.array(config.get('binder_properties', [3.0, 0.07, 0.75, 0.35]), dtype=float)
 
-        tabular_time = config.get('tabular_time', False) #default to value
+        tabular_time = config.get('tabular_time', True) #default to value
         use_distributions = config.get('use_distributions', False)
         use_gating = config.get('use_gating', False)
         loaded_microstructure = str('false')
@@ -91,7 +102,7 @@ match pbx:
 
         use_mixture = config.get('use_mixture', False)
         binder_properties = np.array(config.get('binder_properties', [3.0, 0.08, 3.0, 0.33]), dtype=float)
-        tabular_time = config.get('tabular_time', False) #default to value
+        tabular_time = config.get('tabular_time', True) #default to value
         use_distributions = config.get('use_distributions', False)
         use_gating = config.get('use_gating', False)
         loaded_microstructure = str('false')
@@ -139,7 +150,7 @@ match pbx:
         use_mixture = config.get('use_mixture', False)
         binder_properties = np.array(config.get('binder_properties', [3.0, 0.08, 3.0, 0.33]), dtype=float)
 
-        tabular_time = config.get('tabular_time', False) #default to value
+        tabular_time = config.get('tabular_time', True) #default to value
         use_distributions = config.get('use_distributions', False)
         use_gating = config.get('use_gating', False)
 
@@ -214,7 +225,6 @@ final = final.replace("{IMPACT_VELOCITY}", str(vel))
 
 #decompose binder properties
 binder_bulk, binder_yield, binder_shear, binder_poisson = binder_properties
-
 final = final.replace("{BINDER_BULK}", str(binder_bulk))
 final = final.replace("{BINDER_YIELD}", str(binder_yield))
 final = final.replace("{BINDER_SHEAR}", str(binder_shear))
@@ -325,13 +335,19 @@ match dim:
 custom_name = config.get('custom_name', 'NO')
 
 if truthy(custom_name):
-    final_name = config.get('name', f'{dim}_run')
+    # Custom names still obey the directory naming contract. This is
+    # idempotent when callers (such as generate_multiple.py) already supplied
+    # the velocity suffix and repairs a stale suffix if the YAML was edited.
+    final_name = with_shock_velocity(config.get('name', f'{dim}_run'), vel)
 
 elif (pbx == 'LOADED'):
-    final_name = f"loaded_{datafile}_slice{zloc}_{dim}_up{vel}_perp{elem_perp_1}_shock{elem_shock_dir}_time{'distr' if truthy(use_distributions) else 'tabular'}_binder{binder_width}_{int(binder_range[0])}_{int(binder_range[-1])}"
+    final_name = f"loaded_{datafile}_slice{zloc}_{dim}_up{format_shock_velocity(vel)}_perp{elem_perp_1}_shock{elem_shock_dir}_time{'distr' if truthy(use_distributions) else 'tabular'}_binder{binder_width}_{int(binder_range[0])}_{int(binder_range[-1])}"
 
 else:
-    final_name = f"{dim}_up{vel}_type{pbx}_perp{elem_perp_1}_shock{elem_shock_dir}_poro{particle_poro if pbx == 'PBX' else 0}_time{'distr' if truthy(use_distributions) else 'tabular'}_binder{binder_width}_{int(binder_range[0])}_{int(binder_range[-1])}" 
+    final_name = f"{dim}_up{format_shock_velocity(vel)}_type{pbx}_perp{elem_perp_1}_shock{elem_shock_dir}_poro{particle_poro if pbx == 'PBX' else 0}_time{'distr' if truthy(use_distributions) else 'tabular'}_binder{binder_width}_{int(binder_range[0])}_{int(binder_range[-1])}" 
+
+run_dir = Path(f'./DIR{final_name}')
+run_dir.mkdir(parents=True, exist_ok=True)
 
 with open(f'{final_name}.i', "w") as f:
     f.write(final)
@@ -383,13 +399,16 @@ if truthy(gen_and_run):
     sbatch_final = sbatch_final.replace('{DIR}', f'DIR{final_name}')
     sbatch_final = sbatch_final.replace(
         '#SBATCH -A {ACC}',
-        f'#SBATCH -A {account}' if account else '',
+        f'#SBATCH -A {account}' if account else 'alta',
     )
-    #sbatch_final = sbatch_final.replace('{FULL_OUTPUTS}', str('outputs = exodus') if full_outputs == 'YES' else str(''))
+    sbatch_final = sbatch_final.replace('{FULL_OUTPUTS}', str('outputs = exodus') if full_outputs == 'YES' else str(''))
 
     #input queue
     queue = config.get('sbatch_queue', 'normal')
     sbatch_final = sbatch_final.replace('{QUEUE}', str(queue))
+
+    partition = config.get('sbatch_partition', 'cpu')
+    sbatch_final = sbatch_final.replace('{PART}', str(partition))
 
     with open(f'DIR{final_name}/{final_name}', 'w') as f:
         f.write(sbatch_final)
@@ -398,7 +417,7 @@ if truthy(gen_and_run):
     su.run(['sbatch', '-A', account, f'DIR{final_name}/{final_name}'])
 
 #generate log file with al the used configuration
-dump_name = f'DIR{final_name}/DUMP{final_name}.txt'
+dump_name = f'./DIR{final_name}/DUMP{final_name}.txt'
 with open(dump_name, 'w') as f:
     f.write(f"Simulation Dimension: {dim}\n")
     if dim == '2D':
