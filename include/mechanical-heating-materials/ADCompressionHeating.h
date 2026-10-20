@@ -24,4 +24,7 @@ private:
     //
     const std::string _constitutive_model;
     const ADMaterialProperty<RankFourTensor> * const _elasticity_tensor;
+
+    const bool _log_model;
+    const ADMaterialProperty<RankTwoTensor> * const _Fe;
 };

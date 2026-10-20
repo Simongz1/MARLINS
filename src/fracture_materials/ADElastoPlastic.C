@@ -50,6 +50,7 @@ ADElastoPlastic::validParams()
   //parameter to enable thermal expansion contribution
   params.addParam<bool>("thermal_expansion", true, "whether to include thermal expansion in the stress calculation");
   params.addParam<MaterialPropertyName>("thermal_expansion_coefficient_name", "thermal_expansion_coefficient", "name of the thermal expansion coefficient");
+  params.addParam<bool>("log_model", false, "whether to use the log strain energy in volumetric computation");
   return params;
 }
 
@@ -168,7 +169,8 @@ ADElastoPlastic::ADElastoPlastic(
     _thermal_expansion_coefficient_name(getParam<MaterialPropertyName>("thermal_expansion_coefficient_name")),
     _thermal_expansion_coefficient(_thermal_expansion ? &getADMaterialPropertyByName<Real>(_thermal_expansion_coefficient_name) : nullptr),
     _reference_temperature(declareADProperty<Real>("reference_temperature")),
-    _reference_temperature_old(getMaterialPropertyOld<Real>("reference_temperature"))
+    _reference_temperature_old(getMaterialPropertyOld<Real>("reference_temperature")),
+    _log_model(getParam<bool>("log_model"))
 {}
 
 void
@@ -644,16 +646,37 @@ ADElastoPlastic::computeNHCauchyStressTensor(const ADRankTwoTensor & be_bar)
   if (!_viscoplastic){
     const ADReal shear = (3.0 * _bulk[_qp]) * (1.0 - 2.0 * _poisson[_qp]) / (2.0 + 2.0 * _poisson[_qp]);
     const ADRankTwoTensor I = ADRankTwoTensor::Identity();
-    const ADReal volume_change = _J[_qp] - 1.0;
-    const ADRankTwoTensor deviatoric = (shear / _J[_qp]) * be_bar.deviatoric();
-    const ADRankTwoTensor total = _bulk[_qp] * volume_change * I + deviatoric;
-    ADRankTwoTensor positive =
-        _bulk[_qp] * braket(volume_change) * braketDerivative(volume_change) * I;
-    if (_penalize_shear)
-      positive += deviatoric;
 
-    const ADRankTwoTensor negative = total - positive;
-    return {total, positive, negative};
+    //branch based on log model
+    if (_log_model){
+      //compute pressure
+      const ADReal p = 0.5 * _bulk[_qp] * (_J[_qp] * _J[_qp] - 1.0) / _J[_qp];
+      const ADRankTwoTensor deviatoric = (shear / _J[_qp]) * be_bar.deviatoric();
+      const ADRankTwoTensor total = p * I + deviatoric;
+
+      //compute positive
+      ADRankTwoTensor positive = (_J[_qp] - 1.0 > ADReal(0.0)) ? p * I : 0.0 * I;
+      
+      //add deviatoric part if we are penalizing it
+      if (_penalize_shear){
+        positive += deviatoric;
+      }
+
+      //form negative 
+      const ADRankTwoTensor negative = total - positive;
+      return {total, positive, negative};
+    }else{
+      const ADReal volume_change = _J[_qp] - 1.0;
+      const ADRankTwoTensor deviatoric = (shear / _J[_qp]) * be_bar.deviatoric();
+      const ADRankTwoTensor total = _bulk[_qp] * volume_change * I + deviatoric;
+      ADRankTwoTensor positive =
+          _bulk[_qp] * braket(volume_change) * braketDerivative(volume_change) * I;
+      if (_penalize_shear)
+        positive += deviatoric;
+
+      const ADRankTwoTensor negative = total - positive;
+      return {total, positive, negative};
+    }
   }
   if (_viscoplastic){
     const ADReal shear = (3.0 * _bulk[_qp]) * (1.0 - 2.0 * _poisson[_qp]) / (2.0 + 2.0 * _poisson[_qp]);
@@ -666,18 +689,37 @@ ADElastoPlastic::computeNHCauchyStressTensor(const ADRankTwoTensor & be_bar)
     //form the new be_bar from the elastic deformation gradient
     const ADRankTwoTensor local_be_bar = MetaPhysicL::pow(Je, - 2.0 / 3.0) * _Fe[_qp] * _Fe[_qp].transpose();
     
-    //compute total, positive, and negative
-    const ADReal volume_change = Je - 1.0;
-    const ADRankTwoTensor deviatoric = (shear / Je) * local_be_bar.deviatoric();
-    const ADRankTwoTensor total = _bulk[_qp] * volume_change * I + deviatoric;
-    ADRankTwoTensor positive = _bulk[_qp] * braket(volume_change) * braketDerivative(volume_change) * I;
-    if (_penalize_shear){
-      positive += deviatoric;
+    //repeat same approach for this branch
+    if (_log_model){
+      //compute pressure
+      const ADReal p = 0.5 * _bulk[_qp] * (Je * Je - 1.0) / Je;
+      const ADRankTwoTensor deviatoric = (shear / Je) * local_be_bar.deviatoric();
+      const ADRankTwoTensor total = p * I + deviatoric;
+
+      //compute positive
+      ADRankTwoTensor positive = (Je - 1.0 > ADReal(0.0)) ? p * I : 0.0 * I;
+      
+      //add deviatoric part if we are penalizing it
+      if (_penalize_shear){
+        positive += deviatoric;
+      }
+
+      //form negative 
+      const ADRankTwoTensor negative = total - positive;
+      return {total, positive, negative};
+
+    }else{
+      const ADReal volume_change = Je - 1.0;
+      const ADRankTwoTensor deviatoric = (shear / Je) * local_be_bar.deviatoric();
+      const ADRankTwoTensor total = _bulk[_qp] * volume_change * I + deviatoric;
+      ADRankTwoTensor positive = _bulk[_qp] * braket(volume_change) * braketDerivative(volume_change) * I;
+      if (_penalize_shear){
+        positive += deviatoric;
+      }
+
+      const ADRankTwoTensor negative = total - positive;
+      return {total, positive, negative};
     }
-
-    const ADRankTwoTensor negative = total - positive;
-    return {total, positive, negative};
-
   }
   mooseError("Invalid constitutive model. The accepted models are Saint Venant-Kirchhoff (SVK) and Neo-Hookean (NH) !!");
 }
@@ -788,6 +830,21 @@ ADElastoPlastic::computeNHStrainEnergy(const ADRankTwoTensor & be_bar)
     be_bar_energy = MetaPhysicL::pow(J_energy, -2.0 / 3.0) * _Fe[_qp] * _Fe[_qp].transpose();
   }
 
+  //branch on log model
+  if (_log_model){
+    //compute the volumetric energy
+    const ADReal Wvol = 0.25 * _bulk[_qp] * (J_energy * J_energy - 1.0 - 2.0 * MetaPhysicL::log(J_energy));
+    const ADReal Wdev = 0.5 * shear * (be_bar_energy.trace() - 3.0);
+    const ADReal Wvolpos = J_energy > ADReal(1.0) ? Wvol : ADReal(0.0);
+
+    //assemble total energy
+    const ADReal total = Wvol + Wdev;
+    const ADReal positive = Wvolpos + (_penalize_shear ? Wdev : ADReal(0.0));
+    const ADReal negative = total - positive;
+
+    //return statement
+    return {total, positive, negative};
+  }
   const ADReal volume_change = J_energy - 1.0;
   const ADReal Wvol = 0.5 * _bulk[_qp] * volume_change * volume_change;
   const ADReal Wdev = 0.5 * shear * (be_bar_energy.trace() - 3.0);

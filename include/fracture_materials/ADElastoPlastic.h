@@ -160,6 +160,7 @@ protected:
   const ADMaterialProperty<Real> * const _thermal_expansion_coefficient;
   ADMaterialProperty<Real> &_reference_temperature;
   const MaterialProperty<Real> &_reference_temperature_old;
+  const bool _log_model;
 
 private:
     //nothing here
