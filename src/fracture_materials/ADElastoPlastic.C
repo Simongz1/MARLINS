@@ -113,7 +113,6 @@ ADElastoPlastic::ADElastoPlastic(
 
     //replicate same approach for strain hardening flow function
     _flow_hardening_material(nullptr),
-    _flow_hardening_name("flow_hardening"),
 
     //history and strain energy for fracture
     _Hist(declareADProperty<Real>("Hist")),
@@ -123,9 +122,6 @@ ADElastoPlastic::ADElastoPlastic(
     _H(getADMaterialPropertyByName<Real>(_flow_stress_name)),
     _dH(getMaterialPropertyDerivativeByName<Real, true>(_flow_stress_name, _ep_name)),
     _d2H(getMaterialPropertyDerivativeByName<Real, true>(_flow_stress_name, _ep_name, _ep_name)),
-
-    //get flow hardening material derivatives here
-    _f(getADMaterialPropertyByName<Real>(_flow_hardening_name)),
 
     _De_name(getParam<MaterialPropertyName>("elastic_degradation_name")),
     _De(getADMaterialPropertyByName<Real>(_De_name)),

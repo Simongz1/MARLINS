@@ -116,7 +116,6 @@ protected:
   const std::string _flow_stress_name;
 
   MaterialBase * _flow_hardening_material;
-  const std::string _flow_hardening_name;
 
   ADMaterialProperty<Real> & _Hist;
   const MaterialProperty<Real> &_Hist_old;
@@ -124,9 +123,6 @@ protected:
   const ADMaterialProperty<Real> & _H;
   const ADMaterialProperty<Real> & _dH;
   const ADMaterialProperty<Real> & _d2H;
-
-  //flow derivatives
-  const ADMaterialProperty<Real> &_f;
 
   const MaterialPropertyName &_De_name;
   const ADMaterialProperty<Real> &_De;
