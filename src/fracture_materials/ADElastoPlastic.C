@@ -970,7 +970,7 @@ ADElastoPlastic::viscoPlasticUpdate(){
       //run implicit solve
       delta_ep = internalPlasticSolve((*_vp_tol),
                                       (*_vp_maxiter),
-                                      sigma_e_trial,
+                                      N_trial,
                                       Fe_trial);
     }else{
       mooseError("implicit plastic solve is currently only supported with the NeoHookean Branch models.");
@@ -1034,25 +1034,36 @@ ADElastoPlastic::internalPlasticSolve(const Real & tol,
                                       const ADRankTwoTensor & N_ref,
                                       const ADRankTwoTensor & Fe_ref)
 {   
-
-  //evaluate initial residual
-  ADReal delta_ep = 0.0;
-
+  //outer loop for alpha
+  Real alpha = 1.0;
+  const Real min_alpha = 1e-3;
   const ADRankTwoTensor A = Fe_ref.inverse() * N_ref * Fe_ref;
 
-  for (unsigned int iter = 0; iter < maxiter; iter++){
-    //iterate until convergence or maxiter, exit on earliest case
-    ADReal current_residual = viscoplasticResidual(delta_ep, Fe_ref, A);
-    
-    if (std::abs(MetaPhysicL::raw_value(current_residual)) <= tol){
+  //iterate as alpha is greater than min alpha
+  while (alpha >= min_alpha){
+    ADReal delta_ep = 0.0;
+    for (unsigned int iter = 0; iter < maxiter; iter++){
+      //evaluate initial residual
+      ADReal current_residual = viscoplasticResidual(delta_ep, Fe_ref, A);
+      
+      if (std::abs(MetaPhysicL::raw_value(current_residual)) <= tol){
+        return delta_ep;
+      }
+
+      ADReal current_derivative = viscoplasticDerivative(delta_ep, Fe_ref, A);
+      delta_ep -= alpha * current_residual / current_derivative;
+    }
+    //check the residual at the end
+    const ADReal final_residual = viscoplasticResidual(delta_ep, Fe_ref, A);
+
+    if (std::abs(MetaPhysicL::raw_value(final_residual)) <= tol){
       return delta_ep;
     }
 
-    ADReal current_derivative = viscoplasticDerivative(delta_ep, Fe_ref, A);
-    delta_ep -= current_residual / current_derivative;
+    //if this gets here and there was no return statement, we cut alpha
+    alpha /= 2;
   }
-
-  mooseError("the iterative plastic solve diverged at ", (*_vp_maxiter), "iterations.\n");
+  mooseException("alpha < min_alpha and no convergence was achieved!\nTimestep will be cut in half!");
 }
 
 //we need helper functions for the residual and derivative
