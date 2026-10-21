@@ -51,6 +51,11 @@ ADElastoPlastic::validParams()
   params.addParam<bool>("thermal_expansion", true, "whether to include thermal expansion in the stress calculation");
   params.addParam<MaterialPropertyName>("thermal_expansion_coefficient_name", "thermal_expansion_coefficient", "name of the thermal expansion coefficient");
   params.addParam<bool>("log_model", false, "whether to use the log strain energy in volumetric computation");
+
+  //retrieve newton parameters
+  params.addParam<bool>("implicit_plastic_solve", false, "whether to perform a Newton implicit solve for the increment in viscoplastic strain");
+  params.addParam<Real>("vp_tol", 1e-8, "residual tolerance for viscoplastic implicit solve");
+  params.addParam<int>("vp_maxiter", 30, "maximum number of iterations to perform");
   return params;
 }
 
@@ -119,6 +124,9 @@ ADElastoPlastic::ADElastoPlastic(
     _dH(getMaterialPropertyDerivativeByName<Real, true>(_flow_stress_name, _ep_name)),
     _d2H(getMaterialPropertyDerivativeByName<Real, true>(_flow_stress_name, _ep_name, _ep_name)),
 
+    //get flow hardening material derivatives here
+    _f(getADMaterialPropertyByName<Real>(_flow_hardening_name)),
+
     _De_name(getParam<MaterialPropertyName>("elastic_degradation_name")),
     _De(getADMaterialPropertyByName<Real>(_De_name)),
     _Dp_name(getParam<MaterialPropertyName>("plastic_degradation_name")),
@@ -161,6 +169,10 @@ ADElastoPlastic::ADElastoPlastic(
     _vp_rate_exponent(_viscoplastic ? &getADMaterialPropertyByName<Real>(_vp_rate_exponent_name) : nullptr),
     _vp_yield_function_name(getParam<MaterialPropertyName>("viscoplastic_yield_function_name")),
     _vp_yield_function(_viscoplastic ? &getADMaterialPropertyByName<Real>(_vp_yield_function_name) : nullptr),
+    
+    //retrieve conditional derivatives too
+    _vp_yield_function_prime(_viscoplastic ? &getMaterialPropertyDerivativeByName<Real, true>(_vp_yield_function_name, _ep_name) : nullptr),
+
     _xi_name(getParam<MaterialPropertyName>("xi_name")),
     _xi(_viscoplastic ? &getADMaterialPropertyByName<Real>(_xi_name) : nullptr),
 
@@ -170,7 +182,13 @@ ADElastoPlastic::ADElastoPlastic(
     _thermal_expansion_coefficient(_thermal_expansion ? &getADMaterialPropertyByName<Real>(_thermal_expansion_coefficient_name) : nullptr),
     _reference_temperature(declareADProperty<Real>("reference_temperature")),
     _reference_temperature_old(getMaterialPropertyOld<Real>("reference_temperature")),
-    _log_model(getParam<bool>("log_model"))
+    _log_model(getParam<bool>("log_model")),
+
+    //parameters for implicit solve
+    _implicit(getParam<bool>("implicit_plastic_solve")),
+    _vp_tol(_implicit ? &getParam<Real>("vp_tol") : nullptr),
+    _vp_maxiter(_implicit ? &getParam<int>("vp_maxiter") : nullptr)
+
 {}
 
 void
@@ -527,8 +545,8 @@ ADElastoPlastic::computeFlowDirection(const ADRankTwoTensor & cauchy_stress, con
       const ADReal q = MetaPhysicL::sqrt((3.0 / 2.0) * s.doubleContraction(s));
       const ADReal t = cauchy_stress.trace();
 
-      //HARD CODE XI
-      const Real xi = 0.5;
+      //retrieve the actual xi
+      const ADReal xi = (*_xi)[_qp];
       const ADRankTwoTensor A = 3.0 * (1.0 - xi) * s + 2.0 * xi * braket(t) * I;
       const ADRankTwoTensor flow_direction = std::sqrt(3.0 / 2.0) * A / MetaPhysicL::sqrt(A.doubleContraction(A));
       return {flow_direction, s};
@@ -948,15 +966,32 @@ ADElastoPlastic::viscoPlasticUpdate(){
 
   //before calling vp_yield_function, call qp properties at the supplied material
   _flow_hardening_material->computePropertiesAtQp(_qp);
-  ADReal lambda_dot = (*_vp_reference_rate)[_qp] * MetaPhysicL::pow(q_trial / ((*_vp_flow_resistance)[_qp] * (*_vp_yield_function)[_qp]), (*_vp_rate_exponent)[_qp]);
+
+  //branch here for the implicit update
+  ADReal delta_ep = 0.0;
+  if (_implicit){
+    if(_constitutive_model == "NH"){
+      //run implicit solve
+      delta_ep = internalPlasticSolve((*_vp_tol),
+                                      (*_vp_maxiter),
+                                      sigma_e_trial,
+                                      Fe_trial);
+    }else{
+      mooseError("implicit plastic solve is currently only supported with the NeoHookean Branch models.");
+    }
+  }else{
+    const ADReal lambda_dot = (*_vp_reference_rate)[_qp] * MetaPhysicL::pow(q_trial / ((*_vp_flow_resistance)[_qp] * (*_vp_yield_function)[_qp]), (*_vp_rate_exponent)[_qp]);
+    //directly compute delta_ep
+    delta_ep = _dt * lambda_dot;
+  }
 
   //update the plastic internal variable
-  _ep[_qp] = _ep_old[_qp] + _dt * lambda_dot;
-  _ep_dot[_qp] = lambda_dot;
+  _ep[_qp] = _ep_old[_qp] + delta_ep;
+  _ep_dot[_qp] = delta_ep / _dt;
 
   //update plastic deformation gradient
   //compute incremental plastic deformation gradient
-  const ADRankTwoTensor Fp_incremental_inverse = I - _dt * lambda_dot * Fe_trial.inverse() * N_trial * Fe_trial;
+  const ADRankTwoTensor Fp_incremental_inverse = I - _dt * _ep_dot[_qp] * Fe_trial.inverse() * N_trial * Fe_trial;
   _Fp[_qp] = Fp_incremental_inverse.inverse() * _Fp_old[_qp];
 
   //update the elastic deformation gradient back with the newly computed platic
@@ -993,5 +1028,123 @@ ADElastoPlastic::exp(const ADRankTwoTensor & x){
   }
 
   return Q * expDiag * Q.transpose();
+}
+
+//define here internal newton solve
+
+ADReal
+ADElastoPlastic::internalPlasticSolve(const Real & tol, 
+                                      const Real & maxiter,
+                                      const ADRankTwoTensor & N_ref,
+                                      const ADRankTwoTensor & Fe_ref)
+{   
+
+  //evaluate initial residual
+  ADReal delta_ep = 0.0;
+
+  const ADRankTwoTensor A = Fe_ref.inverse() * N_ref * Fe_ref;
+
+  for (unsigned int iter = 0; iter < maxiter; iter++){
+    //iterate until convergence or maxiter, exit on earliest case
+    ADReal current_residual = viscoplasticResidual(delta_ep, Fe_ref, A);
+    
+    if (std::abs(MetaPhysicL::raw_value(current_residual)) <= tol){
+      return delta_ep;
+    }
+
+    ADReal current_derivative = viscoplasticDerivative(delta_ep, Fe_ref, A);
+    delta_ep -= current_residual / current_derivative;
+  }
+
+  mooseError("the iterative plastic solve diverged at ", (*_vp_maxiter), "iterations.\n");
+}
+
+//we need helper functions for the residual and derivative
+ADReal
+ADElastoPlastic::viscoplasticResidual(const ADReal & delta_ep,
+                                      const ADRankTwoTensor & Fe_trial,
+                                      const ADRankTwoTensor & A)
+{   
+    const ADRankTwoTensor I = ADRankTwoTensor::Identity();
+
+    //reconstruct state
+    _Fe[_qp] = Fe_trial * (I - delta_ep * A);
+    _ep[_qp] = _ep_old[_qp] + delta_ep;
+
+    //compute new properties at qp with updated ep
+    _flow_hardening_material->computePropertiesAtQp(_qp);
+
+    //compute constants
+    const ADReal Je = _Fe[_qp].det();
+
+    const ADReal rate_0 = (*_vp_reference_rate)[_qp];
+    const ADReal m = (*_vp_rate_exponent)[_qp];
+
+    const ADRankTwoTensor be_bar = MetaPhysicL::pow(Je, -2.0 / 3.0) * _Fe[_qp] * _Fe[_qp].transpose();
+    
+    const auto sigma_trial_state = _constitutive_model == "NH" ? computeNHCauchyStressTensor(be_bar) : computeSVKCauchyStressTensor((*_elasticity_tensor)[_qp], _Fe[_qp]);
+
+    //unpack; form the actual stress penalization
+    const ADRankTwoTensor sigma = _De[_qp] * sigma_trial_state[1] + sigma_trial_state[2];
+    const ADRankTwoTensor s = sigma.deviatoric();
+    
+    //form residual; compute the effective stress from the penalized trial stress
+    const ADReal q = 1.5 * s.doubleContraction(s);
+    const ADReal H = (*_vp_flow_resistance)[_qp] * (*_vp_yield_function)[_qp];
+
+    return delta_ep - _dt * rate_0 * MetaPhysicL::pow(q, 0.5 * m) / MetaPhysicL::pow(H, m);
+}
+
+//derivative
+ADReal
+ADElastoPlastic::viscoplasticDerivative(const ADReal & delta_ep,
+                                        const ADRankTwoTensor & Fe_trial,
+                                        const ADRankTwoTensor & A)
+{
+  const ADReal shear = (3.0 * _bulk[_qp]) * (1.0 - 2.0 * _poisson[_qp]) / (2.0 + 2.0 * _poisson[_qp]);
+
+  const ADRankTwoTensor I = ADRankTwoTensor::Identity();
+
+  //reconstruct state
+  _Fe[_qp] = Fe_trial * (I - delta_ep * A);
+  _ep[_qp] = _ep_old[_qp] + delta_ep;
+
+  //compute new properties at qp with updated ep
+  _flow_hardening_material->computePropertiesAtQp(_qp);
+
+  //store values
+  const ADReal rate_0 = (*_vp_reference_rate)[_qp];
+  const ADReal m = (*_vp_rate_exponent)[_qp];
+  const ADReal Je = _Fe[_qp].det();
+
+  const ADRankTwoTensor be_bar = MetaPhysicL::pow(Je, -2.0 / 3.0) * _Fe[_qp] * _Fe[_qp].transpose();
+  const ADRankTwoTensor be = _Fe[_qp] * _Fe[_qp].transpose();
+
+  //compute stress
+  const auto sigma_trial_state = _constitutive_model == "NH" ? computeNHCauchyStressTensor(be_bar) : computeSVKCauchyStressTensor((*_elasticity_tensor)[_qp], _Fe[_qp]);
+
+  const ADRankTwoTensor sigma = _De[_qp] * sigma_trial_state[1] + sigma_trial_state[2];
+  const ADRankTwoTensor s = sigma.deviatoric();
+  
+  //form residual; compute the effective stress from the penalized trial stress
+  const ADReal q = 1.5 * s.doubleContraction(s);
+  const ADReal H = (*_vp_flow_resistance)[_qp] * (*_vp_yield_function)[_qp];
+
+  //form derivatives of
+  const ADRankTwoTensor Fe_prime = - Fe_trial * A;
+  const ADReal Je_prime = Je * (_Fe[_qp].inverse() * Fe_prime).trace();
+
+  //compute derivative of be w.r.t delta_p
+  const ADRankTwoTensor be_prime = Fe_prime * _Fe[_qp].transpose() + _Fe[_qp] * Fe_prime.transpose();
+  const ADRankTwoTensor be_bar_prime = MetaPhysicL::pow(Je, -2.0 / 3.0) * (be_prime - (2.0 / 3.0) * (Je_prime / Je) * be);
+
+  const ADRankTwoTensor s_prime = (_penalize_shear ? _De[_qp] : 1.0) * shear / Je * (be_bar_prime.deviatoric() - (1.0 / Je) * Je_prime * be_bar.deviatoric());
+  
+  //form Qprime and Hprime
+  const ADReal q_prime = 3.0 * s.doubleContraction(s_prime);
+  const ADReal H_prime = (*_vp_flow_resistance)[_qp] * (*_vp_yield_function_prime)[_qp];
+
+  const ADReal derivative = 1.0 - _dt * rate_0 * (0.5 * m * MetaPhysicL::pow(q, 0.5 * m - 1.0) * MetaPhysicL::pow(H, -m) * q_prime - m * MetaPhysicL::pow(q, 0.5 * m) * MetaPhysicL::pow(H, - m - 1.0) * H_prime);
+  return derivative;
 }
 //END

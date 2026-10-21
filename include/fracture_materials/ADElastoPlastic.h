@@ -57,6 +57,19 @@ protected:
   virtual ADRankTwoTensor exp(const ADRankTwoTensor & x);
 
   virtual void viscoPlasticUpdate();
+  virtual ADReal viscoplasticResidual(const ADReal & delta_ep,
+                                      const ADRankTwoTensor & Fe_trial,
+                                      const ADRankTwoTensor & A);
+                                      
+  virtual ADReal viscoplasticDerivative(const ADReal & delta_ep,
+                                        const ADRankTwoTensor & Fe_trial,
+                                        const ADRankTwoTensor & A);
+
+  //define internal newton solve for plastic update
+  virtual ADReal internalPlasticSolve(const Real & tol,
+                                      const Real & maxiter,
+                                      const ADRankTwoTensor & N_ref,
+                                      const ADRankTwoTensor & Fe_ref);
 
   ////////////////////////////////////////////
   //rest of forward declarations
@@ -112,6 +125,9 @@ protected:
   const ADMaterialProperty<Real> & _dH;
   const ADMaterialProperty<Real> & _d2H;
 
+  //flow derivatives
+  const ADMaterialProperty<Real> &_f;
+
   const MaterialPropertyName &_De_name;
   const ADMaterialProperty<Real> &_De;
 
@@ -151,6 +167,7 @@ protected:
   const ADMaterialProperty<Real> * const _vp_rate_exponent;
   const MaterialPropertyName &_vp_yield_function_name;
   const ADMaterialProperty<Real> * const _vp_yield_function;
+  const ADMaterialProperty<Real> * const _vp_yield_function_prime;
   const MaterialPropertyName &_xi_name;
   const ADMaterialProperty<Real> * const _xi;
 
@@ -161,6 +178,10 @@ protected:
   ADMaterialProperty<Real> &_reference_temperature;
   const MaterialProperty<Real> &_reference_temperature_old;
   const bool _log_model;
+
+  const bool _implicit;
+  const Real * const _vp_tol;
+  const int * const _vp_maxiter;
 
 private:
     //nothing here
