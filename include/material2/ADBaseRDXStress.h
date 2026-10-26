@@ -125,7 +125,13 @@ protected:
 
   const ADMaterialProperty<Real> &_bulk;
   const ADMaterialProperty<Real> &_poisson;
+  const std::string _stress_measure;
+  const std::string _reconstruction;
+
+  //
+  const unsigned int _ndisp;
+  std::vector<const ADVariableGradient *> _grad_disp;
+  ADReal _Y1_clamped;
 private:
-    //nothing here
-    //hi
+    //empty
 };

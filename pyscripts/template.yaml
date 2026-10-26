@@ -1,0 +1,26 @@
+configuration: current
+deformation_gradient_reconstruction: incremental
+dim: {DIM}D
+impactVelocity: {UP}
+elemsize: [1, 1]
+full_outputs: {OUTPUTS}
+custom_name: YES
+name: {NAME}
+type: PBX
+gen_and_run: YES
+
+particle_sizes: [{SIZE1}, {SIZE2}]
+particle_proportions: [0.5, 0.5]
+binder_range: [1, {BINDER_MAX}]
+binder_width: {BINDER_WIDTH}
+
+particle_poro: {POROSITY}
+elem_shock_dir: {ELEM_SHOCK}
+elem_perp_1: {ELEM_PERP}
+
+sbatch_days: {DAYS}
+sbatch_hours: {HOURS}
+sbatch_cores: {CORES}
+sbatch_nodes: {NODES}
+sbatch_partition: {PART}
+

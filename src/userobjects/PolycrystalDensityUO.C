@@ -27,8 +27,8 @@ PolycrystalDensityUO::validParams()
   //additional features
 
   params.addRequiredParam<bool>("bulk_grains", "bulk_grains");
-  params.addRequiredParam<unsigned int>("n_cracks", "n_cracks");
-  params.addRequiredParam<unsigned int>("l_cracks", "l_cracks");
+  // params.addRequiredParam<unsigned int>("n_cracks", "n_cracks");
+  // params.addRequiredParam<unsigned int>("l_cracks", "l_cracks");
   params.addRequiredParam<unsigned int>("n_pores", "n_pores");
 
   //provide bulk RDX values
@@ -37,7 +37,7 @@ PolycrystalDensityUO::validParams()
   params.addRequiredParam<std::vector<unsigned int>>("range_pore", "range_pore");
   params.addRequiredParam<Real>("pore_RDX_fraction", "pore_RDX_fraction");
   params.addParam<Real>("pore_probability", 0.01, "pore_probability"); //defaul value
-  params.addParam<bool>("euler_angles", true, "euler_angles");
+  // params.addParam<bool>("euler_angles", true, "euler_angles");
 
   //for loaded custom microstructure
   params.addParam<bool>("use_loaded_microstructure", false, "use_loaded_microstructure");
@@ -63,8 +63,8 @@ PolycrystalDensityUO::PolycrystalDensityUO(const InputParameters & params)
     _csv_fraction(getParam<std::string>("csv_fraction")),
     _csv_fraction_pore(getParam<std::string>("csv_fraction_pore")),
     _bulk_grains(getParam<bool>("bulk_grains")),
-    _n_cracks(getParam<unsigned int>("n_cracks")),
-    _l_cracks(getParam<unsigned int>("l_cracks")),
+    // _n_cracks(getParam<unsigned int>("n_cracks")),
+    // _l_cracks(getParam<unsigned int>("l_cracks")),
     _n_pores(getParam<unsigned int>("n_pores")),
 
     //bulk parameters
@@ -75,7 +75,7 @@ PolycrystalDensityUO::PolycrystalDensityUO(const InputParameters & params)
     _range_pore(getParam<std::vector<unsigned int>>("range_pore")),
     _pore_RDX_fraction(getParam<Real>("pore_RDX_fraction")),
     _pore_probability(getParam<Real>("pore_probability")),
-    _euler_angles(getParam<bool>("euler_angles")),
+    // _euler_angles(getParam<bool>("euler_angles")),
 
     //for loaded microstructure
     _use_loaded_microstructure(getParam<bool>("use_loaded_microstructure")),
@@ -212,42 +212,42 @@ PolycrystalDensityUO::initialSetup(){
   //loaded microstructure variable
   //auto & loaded_microstructure = sys.getVariable(_tid, _loaded_microstructure_name);
 
-  auto & var_euler1 = sys.getVariable(_tid, "euler1");
-  auto & var_euler2 = sys.getVariable(_tid, "euler2");
-  auto & var_euler3 = sys.getVariable(_tid, "euler3");
+  // auto & var_euler1 = sys.getVariable(_tid, "euler1");
+  // auto & var_euler2 = sys.getVariable(_tid, "euler2");
+  // auto & var_euler3 = sys.getVariable(_tid, "euler3");
 
   //generate euler angles vectors
-  const auto orientation_count = _euler_angles ? _centers.size() : 0;
-  std::vector<Real> grain_euler1(orientation_count), grain_euler2(orientation_count),
-      grain_euler3(orientation_count);
+  // const auto orientation_count = _euler_angles ? _centers.size() : 0;
+  // std::vector<Real> grain_euler1(orientation_count), grain_euler2(orientation_count),
+  //     grain_euler3(orientation_count);
 
-  if (_euler_angles){
-    MooseRandom::seed(1234);
+  // if (_euler_angles){
+  //   MooseRandom::seed(1234);
 
-    for (unsigned int g = 0; g < _num_grains; ++g){
-      // Preserve all draws, including requested centers that could not be placed.
-      const Real euler1 = MooseRandom::rand();
-      const Real euler2 = MooseRandom::rand();
-      const Real euler3 = MooseRandom::rand();
-      if (g < orientation_count)
-      {
-        grain_euler1[g] = euler1;
-        grain_euler2[g] = euler2;
-        grain_euler3[g] = euler3;
-      }
-    }
+  //   for (unsigned int g = 0; g < _num_grains; ++g){
+  //     // Preserve all draws, including requested centers that could not be placed.
+  //     const Real euler1 = MooseRandom::rand();
+  //     const Real euler2 = MooseRandom::rand();
+  //     const Real euler3 = MooseRandom::rand();
+  //     if (g < orientation_count)
+  //     {
+  //       grain_euler1[g] = euler1;
+  //       grain_euler2[g] = euler2;
+  //       grain_euler3[g] = euler3;
+  //     }
+  //   }
 
-    if (_tid == 0){
-      mooseInfo("Generated random euler fractions");
-    }
-  }
+  //   if (_tid == 0){
+  //     mooseInfo("Generated random euler fractions");
+  //   }
+  // }
 
   // Reuse DOF buffers and the CSV row instead of allocating per element.
   std::vector<dof_id_type> dof_indices;
   std::vector<dof_id_type> dof_indices_grainID;
-  std::vector<dof_id_type> dof_indices_euler1;
-  std::vector<dof_id_type> dof_indices_euler2;
-  std::vector<dof_id_type> dof_indices_euler3;
+  // std::vector<dof_id_type> dof_indices_euler1;
+  // std::vector<dof_id_type> dof_indices_euler2;
+  // std::vector<dof_id_type> dof_indices_euler3;
   std::vector<dof_id_type> dof_indices_Y1;
   const auto & data = _csv_total_fractions[0];
 
@@ -300,9 +300,9 @@ PolycrystalDensityUO::initialSetup(){
     Real grainID = 0.0;
 
     //declare real assignments
-    Real euler1 = 0.;
-    Real euler2 = 0.;
-    Real euler3 = 0.;
+    // Real euler1 = 0.;
+    // Real euler2 = 0.;
+    // Real euler3 = 0.;
 
     Real loaded_density_value = 0.0;
     if (_bulk_grains){ //use_loaded_microstructure needs this
@@ -342,22 +342,13 @@ PolycrystalDensityUO::initialSetup(){
         grainID = static_cast<Real>(nearest + 1);
 
         //assign euler
-        if (_euler_angles)
-        {
-          euler1 = grain_euler1[nearest];
-          euler2 = grain_euler2[nearest];
-          euler3 = grain_euler3[nearest];
-        }
+        // if (_euler_angles)
+        // {
+        //   euler1 = grain_euler1[nearest];
+        //   euler2 = grain_euler2[nearest];
+        //   euler3 = grain_euler3[nearest];
+        // }
       }
-      
-      //else if (is_grain){
-      //  density_val = static_cast<Real>(_bulk_MicroID);
-      //  grainID = static_cast<Real>(nearest + 1);
-
-      //  euler1 = grain_euler1[nearest];
-      //  euler2 = grain_euler2[nearest];
-      //  euler3 = grain_euler3[nearest];
-      //}
 
       else{
         density_val = _range_out[0] + rand_value * (_range_out[1] - _range_out[0]);
@@ -377,23 +368,23 @@ PolycrystalDensityUO::initialSetup(){
     }
     
     // Write values directly; no per-element field caches are needed.
-    if (_euler_angles){
-      dof_map.dof_indices(elem, dof_indices_euler1, var_euler1.number());
-      dof_map.dof_indices(elem, dof_indices_euler2, var_euler2.number());
-      dof_map.dof_indices(elem, dof_indices_euler3, var_euler3.number());
+    // if (_euler_angles){
+    //   dof_map.dof_indices(elem, dof_indices_euler1, var_euler1.number());
+    //   dof_map.dof_indices(elem, dof_indices_euler2, var_euler2.number());
+    //   dof_map.dof_indices(elem, dof_indices_euler3, var_euler3.number());
 
-      //write into variables
+    //   //write into variables
 
-      for (auto dof : dof_indices_euler1){
-        sys.solution().set(dof, euler1);
-      }
-      for (auto dof : dof_indices_euler2){
-        sys.solution().set(dof, euler2);
-      }
-      for (auto dof : dof_indices_euler3){
-        sys.solution().set(dof, euler3);
-      }
-    }
+    //   for (auto dof : dof_indices_euler1){
+    //     sys.solution().set(dof, euler1);
+    //   }
+    //   for (auto dof : dof_indices_euler2){
+    //     sys.solution().set(dof, euler2);
+    //   }
+    //   for (auto dof : dof_indices_euler3){
+    //     sys.solution().set(dof, euler3);
+    //   }
+    // }
 
     dof_map.dof_indices(elem, dof_indices, var.number());
     dof_map.dof_indices(elem, dof_indices_grainID, var_grainID.number());

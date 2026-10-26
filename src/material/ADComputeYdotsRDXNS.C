@@ -79,10 +79,7 @@ ADComputeYdotsRDXNS::ADComputeYdotsRDXNS(const InputParameters & parameters)
 void
 ADComputeYdotsRDXNS::computeQpProperties()
 {
-    Real R_RDX = _Rg;
-
-    bool condition_chemistry;
-    condition_chemistry = (_dirac_switch_react[_qp] > ADReal(1.0) ? true : false);
+    const Real R_RDX = _Rg;
 
     //set to zero 
     _r1[_qp] = 0.;

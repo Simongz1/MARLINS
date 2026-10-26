@@ -38,8 +38,8 @@ protected:
   const std::string _csv_fraction;
   const std::string _csv_fraction_pore;
   const bool _bulk_grains;
-  const unsigned int _n_cracks;
-  const unsigned int _l_cracks;
+  // const unsigned int _n_cracks;
+  // const unsigned int _l_cracks;
   const unsigned int _n_pores;
 
   const unsigned int _bulk_MicroID;
@@ -47,7 +47,7 @@ protected:
   const std::vector<unsigned int> _range_pore;
   const Real _pore_RDX_fraction;
   const Real _pore_probability;
-  const bool _euler_angles;
+  // const bool _euler_angles;
 
   const bool _use_loaded_microstructure;
   const FunctionName &_loaded_microstructure_name;

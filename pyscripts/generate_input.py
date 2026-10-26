@@ -31,11 +31,28 @@ def moose_bool(value):
     return 'true' if truthy(value) else 'false'
 
 #define simulation dimension
-dim = str(config.get('dim', config.get('dimension', '2D')))
+dim = str(config.get('dim', config.get('dimension', '2D'))).strip().upper()
+if dim in {'2', '3'}:
+    dim += 'D'
+if dim not in {'2D', '3D'}:
+    parser.error("dim (or dimension) must be 2D or 3D")
 vel = float(config.get('vel', config.get('impactVelocity', 1.75)))
 elemsize = np.array(config.get('elemsize', config.get('elementSize', [1.0, 1.9])), dtype=float)
 check_frec = config.get('check_frec', config.get('checkFrec', 2000))
 full_outputs = config.get('full_outputs', 'YES')
+
+# Configuration controls integration geometry and the stress measure together.
+configuration = str(config.get('configuration', 'current')).strip().lower()
+if configuration not in {'reference', 'current'}:
+    parser.error("configuration must be reference or current")
+stress_measure = 'PK1' if configuration == 'reference' else 'cauchy'
+if 'stress_measure' in config and str(config['stress_measure']).lower() != stress_measure.lower():
+    parser.error("stress_measure conflicts with configuration")
+reconstruction = str(config.get('deformation_gradient_reconstruction', 'incremental')).strip().lower()
+if reconstruction not in {'incremental', 'total'}:
+    parser.error("deformation_gradient_reconstruction must be incremental or total")
+mechanics_displaced = moose_bool(configuration == 'current')
+inertia_density = 'current_density' if configuration == 'current' else 'density'
 
 #query PBX or random
 pbx = str(config.get('type', 'PBX'))
@@ -133,8 +150,7 @@ match pbx:
     
     case 'LOADED':
         datafile = config.get('datafile', 'DATA')
-        if (dim == '2D'):
-            zloc = float(config.get('zloc', 0.0))
+        zloc = float(config.get('zloc', 0.0))
         binder_range = np.array(config.get('binder_range', [0, 92]), dtype=int)
         range_microstructures = binder_range
         bulk_grains = str('true')
@@ -284,51 +300,130 @@ final = final.replace("{USUP_COEFFS}", str(f"us_up_coeffs = '{string_us_up}'") i
 compression_sign = int(config.get('compression_sign', 1))
 final = final.replace("{COMPRESSION_SIGN}", str(f"compression_sign = {compression_sign}"))
 
-#for mesh generation
-match dim:
-    case '2D':
-        elem_shock_dir = int(config.get('elem_shock_dir', 300))
-        elem_perp_1 = int(config.get('elem_perp_1', 80))
-        elem_perp_2 = 1
+# The shock travels along y in both dimensions; x and z are transverse.
+elem_shock_dir = int(config.get('elem_shock_dir', 300))
+elem_perp_1 = int(config.get('elem_perp_1', 80))
+elem_perp_2 = int(config.get('elem_perp_2', elem_perp_1)) if dim == '3D' else 1
+if len(elemsize) not in {2, 3} or np.any(elemsize <= 0):
+    parser.error("elemsize must contain positive [shock, transverse] or [shock, x, z] sizes")
+if min(elem_shock_dir, elem_perp_1, elem_perp_2) <= 0:
+    parser.error("element counts must be positive")
 
-        #format and replace
+mesh_block = f"""[Mesh]
+  type = GeneratedMesh
+  dim = {dim[0]}
+  nx = {elem_perp_1}
+  ny = {elem_shock_dir}
+  xmin = 0
+  ymin = 0
+  xmax = {float(elemsize[1] * elem_perp_1)}
+  ymax = {float(elemsize[0] * elem_shock_dir)}
+"""
+if dim == '3D':
+    mesh_block += f"""  nz = {elem_perp_2}
+  zmin = 0
+  zmax = {float(elemsize[-1] * elem_perp_2)}
+  boundary_id = '0 1 2 3 4 5'
+  boundary_name = 'back bottom right top left front'
+  elem_type = HEX8
+"""
+else:
+    mesh_block += """  boundary_id = '0 1 2 3'
+  boundary_name = 'bottom right top left'
+  elem_type = QUAD4
+"""
+mesh_block += '[]'
 
-        final = final.replace("{ELEM_PERP_1}", str(elem_perp_1))
-        final = final.replace("{ELEM_PERP_2}", str(elem_perp_2))
-        final = final.replace("{ELEM_SHOCK_DIR}", str(elem_shock_dir))
+# Translate a loaded 2D mesh to sample the requested plane of a 3D data file.
+if pbx == 'LOADED' and dim == '2D' and zloc != 0:
+    mesh_settings = mesh_block.removeprefix('[Mesh]\n').removesuffix('[]')
+    mesh_settings = mesh_settings.replace('type = GeneratedMesh', 'type = GeneratedMeshGenerator')
+    mesh_block = f"""[Mesh]
+  [plane]
+{mesh_settings}  []
+  [slice]
+    type = TransformGenerator
+    input = plane
+    transform = TRANSLATE
+    vector_value = '0 0 {zloc}'
+  []
+[]"""
 
-        final = final.replace("{DIM_PERP_1}", str(float(elemsize[-1] * elem_perp_1)))
-        final = final.replace("{DIM_PERP_2}", str(float(elemsize[-1] * elem_perp_2) if pbx != 'LOADED' else str(zloc + elemsize[-1])))
-        final = final.replace("{DIM_SHOCK_DIR}", str(float(elemsize[0] * elem_shock_dir)))
-        
-        #for the case wher we want a slice from a loaded 3D structure
-        if (pbx == 'LOADED' and dim == '2D'):
-            repl = str(zloc)
-        else:
-            repl = str(0)
+z_displacement = "[disp_z] []"
+z_aux_variables = """[vz]
+    order = FIRST
+    family = LAGRANGE
+  []
+  [az]
+    order = FIRST
+    family = LAGRANGE
+  []"""
+z_kernels = """[sdz]
+    type = ADDynamicStressDivergenceTensors
+    variable = disp_z
+    component = 2
+    use_displaced_mesh = {MECHANICS_DISPLACED}
+    displacements = 'disp_x disp_y disp_z'
+  []
+  [inertia_z]
+    type = ADInertialForce
+    use_displaced_mesh = {MECHANICS_DISPLACED}
+    density = {INERTIA_DENSITY}
+    variable = disp_z
+    velocity = vz
+    acceleration = az
+    beta = 0.3025
+    gamma = 0.6
+  []"""
+z_aux_kernels = """[vz]
+    type = NewmarkVelAux
+    variable = vz
+    acceleration = az
+    gamma = 0.6
+  []
+  [az]
+    type = NewmarkAccelAux
+    variable = az
+    displacement = disp_z
+    velocity = vz
+    beta = 0.3025
+  []"""
+z_bc = """[z_fix]
+    type = DirichletBC
+    variable = disp_z
+    boundary = 'front back'
+    value = 0.0
+  []"""
 
-        final = final.replace("{ZMIN}", repl)
+replacements = {
+    'MESH': mesh_block.replace('[Mesh]\n', "[Mesh]\n  displacements = '{DISPLACEMENTS}'\n", 1),
+    'STRESS_MEASURE': stress_measure,
+    'RECONSTRUCTION': reconstruction,
+    'MECHANICS_DISPLACED': mechanics_displaced,
+    'INERTIA_DENSITY': inertia_density,
+    # Express every heat source in the selected volume measure before
+    # normalizing it to temperature/time. HS_* already follows stress_measure.
+    'HEAT_DENSITY': 'density' if configuration == 'reference' else 'current_density',
+    'SHOCK_HEAT': 'heatrate_mister_shock' if configuration == 'reference' else 'heatrate_mister_shock / J',
+    'REACT_HEAT': 'heatrate_mister_react' if configuration == 'reference' else 'heatrate_mister_react / J',
+    'CHEM_HEAT': 'J * QR' if configuration == 'reference' else 'QR',
+    'DISPLACEMENTS': 'disp_x disp_y' + (' disp_z' if dim == '3D' else ''),
+    'VELOCITIES': 'vx vy' + (' vz' if dim == '3D' else ''),
+    'ACCELERATIONS': 'ax ay' + (' az' if dim == '3D' else ''),
+    'Z_DISPLACEMENT': z_displacement,
+    'Z_AUX_VARIABLES': z_aux_variables,
+    'Z_KERNELS': z_kernels,
+    'Z_AUX_KERNELS': z_aux_kernels,
+    'Z_BC': z_bc,
+}
+for key, value in replacements.items():
+    if key.startswith('Z_') and dim == '2D':
+        value = ''
+    final = final.replace('{' + key + '}', value)
 
-    case '3D':
-        elem_shock_dir = int(config.get('elem_shock_dir', 300))
-        elem_perp_1 = int(config.get('elem_perp_1', 80))
-        elem_perp_2 = elem_perp_1 #square cross section
-
-        final = final.replace("{ELEM_PERP_1}", str(elem_perp_1))
-        final = final.replace("{ELEM_PERP_2}", str(elem_perp_2))
-        final = final.replace("{ELEM_SHOCK_DIR}", str(elem_shock_dir))
-
-        final = final.replace("{DIM_PERP_1}", str(float(elemsize[-1] * elem_perp_1)))
-        final = final.replace("{DIM_PERP_2}", str(float(elemsize[-1] * elem_perp_2)))
-        final = final.replace("{DIM_SHOCK_DIR}", str(float(elemsize[0] * elem_shock_dir)))
-
-        #for the case wher we want a slice from a loaded 3D structure
-        if (pbx == 'LOADED' and dim == '2D'):
-            repl = str(zloc)
-        else:
-            repl = str(0)
-            
-        final = final.replace("{ZMIN}", repl)
+# Z blocks can introduce configuration tokens after their first replacement.
+for key in ('MECHANICS_DISPLACED', 'INERTIA_DENSITY'):
+    final = final.replace('{' + key + '}', replacements[key])
 
 #define name for the loaded microstructures
 #query for custom name if needed
@@ -341,7 +436,7 @@ if truthy(custom_name):
     final_name = with_shock_velocity(config.get('name', f'{dim}_run'), vel)
 
 elif (pbx == 'LOADED'):
-    final_name = f"loaded_{datafile}_slice{zloc}_{dim}_up{format_shock_velocity(vel)}_perp{elem_perp_1}_shock{elem_shock_dir}_time{'distr' if truthy(use_distributions) else 'tabular'}_binder{binder_width}_{int(binder_range[0])}_{int(binder_range[-1])}"
+    final_name = f"loaded_{datafile}{f'_slice{zloc}' if dim == '2D' else ''}_{dim}_up{format_shock_velocity(vel)}_perp{elem_perp_1}_shock{elem_shock_dir}_time{'distr' if truthy(use_distributions) else 'tabular'}_binder{binder_width}_{int(binder_range[0])}_{int(binder_range[-1])}"
 
 else:
     final_name = f"{dim}_up{format_shock_velocity(vel)}_type{pbx}_perp{elem_perp_1}_shock{elem_shock_dir}_poro{particle_poro if pbx == 'PBX' else 0}_time{'distr' if truthy(use_distributions) else 'tabular'}_binder{binder_width}_{int(binder_range[0])}_{int(binder_range[-1])}" 
@@ -420,12 +515,15 @@ if truthy(gen_and_run):
 dump_name = f'./DIR{final_name}/DUMP{final_name}.txt'
 with open(dump_name, 'w') as f:
     f.write(f"Simulation Dimension: {dim}\n")
+    f.write(f"Configuration: {configuration}\n")
+    f.write(f"Stress Measure: {stress_measure}\n")
+    f.write(f"Deformation Gradient Reconstruction: {reconstruction}\n")
     if dim == '2D':
         f.write(f"Element Count along Shock Direction: {elem_shock_dir}\n")
         f.write(f"Element Count Perpendicular to Shock Direction: {elem_perp_1}\n")
     else:
         f.write(f"Element Count along Shock Direction: {elem_shock_dir}\n")
-        f.write(f"Element Count Perpendicular to Shock Direction: {elem_perp_1} (square cross section)\n") 
+        f.write(f"Element Counts Perpendicular to Shock Direction (x, z): {elem_perp_1}, {elem_perp_2}\n") 
     f.write(f"Impact Velocity: {vel} km/s\n")
     f.write(f"Microstructure Type: {pbx}\n")
     if pbx == 'PBX':

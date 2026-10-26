@@ -34,6 +34,7 @@ protected:
                                       const Real & R2, 
                                       const Real & omega);
   virtual ADReal computeAVPressure();
+  virtual ADRankTwoTensor exp(const ADRankTwoTensor & x);
 
   ADMaterialProperty<RankTwoTensor> &_F;
   const MaterialProperty<RankTwoTensor> & _F_old;
@@ -48,6 +49,7 @@ protected:
   const ADMaterialProperty<Real> &_RDX_bulk;
   const ADMaterialProperty<Real> &_RDX_poisson;
   ADMaterialProperty<RankTwoTensor> &_sigma_RDX;
+  ADMaterialProperty<RankTwoTensor> &_sigma_total;
 
   const std::string _ep_name;
   ADMaterialProperty<Real> & _ep;
@@ -136,6 +138,13 @@ protected:
   
   const ADVariableValue &_temperature;
   const ADMaterialProperty<Real> &_cv;
+
+  ///////////
+  const std::string _stress_measure;
+  const std::string _reconstruction;
+  const unsigned int _ndisp;
+  std::vector<const ADVariableGradient *> _grad_disp;
+  ADReal _Y_clamped;
 private:
     //nothing here
     //hi
