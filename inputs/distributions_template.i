@@ -692,7 +692,7 @@ nu = 0.24
 
 [UserObjects]
   [voronoi_density]
-    type = PolycrystalDensityUO
+    type = PolycrystalDensityUOV2
     num_grains = {NUM_GRAINS}
     target_grains = '1'
     range_in = '{PARTICLE_RANGE_SMALL} {PARTICLE_RANGE_LARGE}' #this is for particles

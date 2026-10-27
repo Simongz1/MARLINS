@@ -1,0 +1,13 @@
+[Tests]
+  [heterogeneous]
+    type = RunApp
+    input = heterogeneous.i
+    requirement = 'Thermal storage shall lump heterogeneous density and heat capacity to nodal temperature rates.'
+  []
+  [check_heterogeneous]
+    type = RunCommand
+    command = 'python3 check.py'
+    prereq = heterogeneous
+    requirement = 'Lumped nodal temperatures shall match the analytic solution and conserve deposited energy.'
+  []
+[]

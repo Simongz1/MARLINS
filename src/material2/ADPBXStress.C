@@ -152,7 +152,11 @@ ADPBXStress::ADPBXStress(
     _reconstruction(getParam<std::string>("deformation_gradient_reconstruction")),
     _ndisp(coupledComponents("displacements")),
     _grad_disp(_ndisp),
-    _Y_clamped()
+    _Y_clamped(),
+    _RDX_shear(),
+    _binder_shear(),
+    _effective_shear(),
+    _I(ADRankTwoTensor::Identity())
 {
   for (unsigned int i = 0; i < _ndisp; ++i){
     _grad_disp[i] = &adCoupledGradient("displacements", i);
@@ -181,14 +185,14 @@ ADPBXStress::initQpStatefulProperties()
 void
 ADPBXStress::computeQpStress()
 {
-  //clamped Y1 copy
-  _Y_clamped = _Yinitial[_qp] > ADReal(1.0) ? ADReal(1.0) :
+  // Y1 is the remaining unreacted RDX fraction of the whole mixture.
+  const Real phi = _use_mixture ? _fraction_csv[_qp] : 1.0;
+  _Y_clamped = _Yinitial[_qp] > ADReal(phi) ? ADReal(phi) :
                 (_Yinitial[_qp] < ADReal(0.0) ? ADReal(0.0) : _Yinitial[_qp]);
 
   //compute the shear modulus from bulk and poisson
-  const ADReal RDX_shear = (3.0 * _RDX_bulk[_qp]) * (1.0 - 2.0 * _RDX_poisson[_qp]) / (2.0 + 2.0 * _RDX_poisson[_qp]);
-  const ADReal binder_shear = (3.0 * _binder_bulk[_qp]) * (1.0 - 2.0 * _binder_poisson[_qp]) / (2.0 + 2.0 * _binder_poisson[_qp]);
-  const ADRankTwoTensor I = ADRankTwoTensor::Identity();
+  _RDX_shear = (3.0 * _RDX_bulk[_qp]) * (1.0 - 2.0 * _RDX_poisson[_qp]) / (2.0 + 2.0 * _RDX_poisson[_qp]);
+  _binder_shear = (3.0 * _binder_bulk[_qp]) * (1.0 - 2.0 * _binder_poisson[_qp]) / (2.0 + 2.0 * _binder_poisson[_qp]);
 
   //general incremental container; it is modified in the next conditionals
   ADRankTwoTensor F_incremental; F_incremental.setToIdentity();
@@ -233,37 +237,42 @@ ADPBXStress::computeQpStress()
 
   //compute INITIAL mixture properties as function of static fractions
   _mixture_shear = _use_mixture ? 
-                   _fraction_csv[_qp] * RDX_shear + (1 - _fraction_csv[_qp]) * binder_shear : 
-                   RDX_shear;
+                   _fraction_csv[_qp] * _RDX_shear + (1 - _fraction_csv[_qp]) * _binder_shear :
+                   _RDX_shear;
 
   _mixture_bulk = _use_mixture ? 
                   _fraction_csv[_qp] * _RDX_bulk[_qp] + (1 - _fraction_csv[_qp]) * _binder_bulk[_qp] : 
                   _RDX_bulk[_qp];
   
-  const ADRankTwoTensor s = _Y_clamped * _mixture_shear * _be_bar[_qp].deviatoric();
-  const ADReal snorm = MetaPhysicL::sqrt(s.doubleContraction(s));
-  _Np[_qp] = MooseUtils::absoluteFuzzyEqual(snorm, ADReal(0)) ? std::sqrt(1. / 2.) * I
-                                                         : std::sqrt(3. / 2.) * s / snorm;
-  const ADReal s_eff = s.doubleContraction(_Np[_qp]);
+  // Use the same phase-weighted shear coefficient for stress and radial return.
+  // Reacted RDX carries no deviatoric stress; binder retains its shear response.
+  _effective_shear = _Y_clamped * _RDX_shear + (1.0 - phi) * _binder_shear / J;
+  const ADRankTwoTensor s_trial = _effective_shear * _be_bar[_qp].deviatoric();
+
+  const ADReal snorm_trial = MetaPhysicL::sqrt(s_trial.doubleContraction(s_trial));
+  _Np[_qp] = MooseUtils::absoluteFuzzyEqual(snorm_trial, ADReal(0)) ? std::sqrt(1. / 2.) * _I
+                                                         : std::sqrt(3. / 2.) * s_trial / snorm_trial;
+  const ADReal s_eff_trial = s_trial.doubleContraction(_Np[_qp]);
 
   // Check for plastic loading and do return mapping
   ADReal delta_ep = 0;
 
   //run radial return 
-  if (MetaPhysicL::raw_value(computeResidual(s_eff, 0)) > 0)
+  if (MetaPhysicL::raw_value(computeResidual(s_eff_trial, 0)) > 0)
   {
-    returnMappingSolve(s_eff, delta_ep, _console);
+    returnMappingSolve(s_eff_trial, delta_ep, _console);
   }
 
   // Update intermediate and current configurations
   _ep[_qp] = _ep_old[_qp] + delta_ep;
   _be_bar[_qp] -= 2. / 3. * delta_ep * _be_bar[_qp].trace() * _Np[_qp];
 
-  // Recompute the effective deviatoric stress after the plastic correction.
-  // The return mapping is formulated for the homogenized material, so this
-  // must use the same mixture shear modulus as the trial stress and residual.
-  const ADRankTwoTensor s_corrected = _Y_clamped * _mixture_shear * _be_bar[_qp].deviatoric();
-    
+  // RDX contribution is already weighted by its remaining phase fraction.
+  const ADRankTwoTensor s_RDX_corrected =
+      _Y_clamped * _RDX_shear * _be_bar[_qp].deviatoric();
+  const ADRankTwoTensor s_binder_corrected =
+      (_binder_shear / J) * _be_bar[_qp].deviatoric();
+
   //compute plastic strain rate from radial return increment
   _ep_dot[_qp] = delta_ep / _dt;
 
@@ -298,8 +307,8 @@ ADPBXStress::computeQpStress()
   _Fe[_qp] = _F[_qp] * _Fp[_qp].inverse();
 
   //compute Lagrangian strains
-  _Ee[_qp] = 0.5 * (_Fe[_qp].transpose() * _Fe[_qp] - I);
-  _Ep[_qp] = 0.5 * (_Cp[_qp] - I);
+  _Ee[_qp] = 0.5 * (_Fe[_qp].transpose() * _Fe[_qp] - _I);
+  _Ep[_qp] = 0.5 * (_Cp[_qp] - _I);
 
   const ADRankTwoTensor Fp_dot = (1. / _dt) * (_Fp[_qp] - _Fp_old[_qp]);
   const ADRankTwoTensor Fe_dot = (1. / _dt) * (_Fe[_qp] - _Fe_old[_qp]);
@@ -315,7 +324,9 @@ ADPBXStress::computeQpStress()
   //compute pressure for unreacted and reacted material
   _p_unreacted[_qp] = - computeJWLPressure(_A_unreacted, _B_unreacted, _R1_unreacted, _R2_unreacted, _omega_unreacted);
   _p_reacted[_qp] = - computeJWLPressure(_A_reacted, _B_reacted, _R1_reacted, _R2_reacted, _omega_reacted);
-  _p_mix[_qp] = _Y_clamped * _p_unreacted[_qp] + (1. - _Y_clamped) * _p_reacted[_qp];
+
+  //compute the pressure corresponding only to RDX related response
+  _p_mix[_qp] = _Y_clamped * _p_unreacted[_qp] + (phi - _Y_clamped) * _p_reacted[_qp];
 
   //compute sound speed and bulk modulus from elasticity tensors
   //this is important for the case later on when we add anisotropic behaviour
@@ -326,17 +337,13 @@ ADPBXStress::computeQpStress()
   _p_av[_qp] = computeAVPressure();
 
   //compute the binder stress using a compressible neo-hookean model
-  _sigma_binder[_qp] = _binder_bulk[_qp] * (_J[_qp] - 1.0) * I;
-  _sigma_binder[_qp] += (1.0 / _J[_qp]) * binder_shear * _be_bar[_qp].deviatoric();
+  const ADReal binder_vol = _binder_bulk[_qp] * (_J[_qp] - 1.0);
+  _sigma_binder[_qp] = binder_vol * _I + s_binder_corrected;
 
-  //declare stress tensor for the RDX phase ONLY
-  _sigma_RDX[_qp] = s_corrected + _p_mix[_qp] * I;
+  // Combined RDX contribution (already weighted), including reaction products.
+  _sigma_RDX[_qp] = s_RDX_corrected + _p_mix[_qp] * _I;
 
-  //compute the mixture cauchy
-  _sigma_total[_qp] = _use_mixture ? 
-                      (1.0 - _fraction_csv[_qp]) * _sigma_binder[_qp]
-                       + _fraction_csv[_qp] * _sigma_RDX[_qp] :
-                       _sigma_RDX[_qp];
+  _sigma_total[_qp] = _sigma_RDX[_qp] + (1.0 - phi) * _sigma_binder[_qp];
 
   //use the current configuration to compute the elastic and plastic heat sources
   const ADRankTwoTensor Lp = Fp_dot * _Fp[_qp].inverse();
@@ -345,7 +352,7 @@ ADPBXStress::computeQpStress()
   _HS_plastic[_qp] = _sigma_total[_qp].doubleContraction(dp);
 
   //add here artificial viscosity to cauchy
-  _sigma_total[_qp] += _p_av[_qp] * I;
+  _sigma_total[_qp] += _p_av[_qp] * _I;
   _PK1[_qp] = _J[_qp] * _sigma_total[_qp] * _F[_qp].inverse().transpose();
   _S[_qp] = _F[_qp].inverse() * _PK1[_qp];
 
@@ -360,12 +367,12 @@ ADPBXStress::computeQpStress()
   
   //compute TOTAL LAGRANGIAN strain and strain rate.
   _E_dot[_qp] = 0.5 * (F_dot.transpose() * _F[_qp] + _F[_qp].transpose() * F_dot);
-  _E[_qp] = 0.5 * (_F[_qp].transpose() * _F[_qp] - I);
+  _E[_qp] = 0.5 * (_F[_qp].transpose() * _F[_qp] - _I);
 
   //updated elastic heat source
   const ADReal J_dot = ((_F[_qp].det() - _F_old[_qp].det()) / _dt);
-  const ADReal interpolated_omega = _Y_clamped * _omega_unreacted + (1.0 - _Y_clamped) * _omega_reacted;
-  const ADReal dp_dT = interpolated_omega * (_rho[_qp] / _J[_qp]) * _cv[_qp];
+  const ADReal interpolated_omega = _Y_clamped * _omega_unreacted + (phi - _Y_clamped) * _omega_reacted;
+  const ADReal dp_dT = interpolated_omega * (_rho[_qp] / _Je[_qp]) * _cv[_qp];
   const ADReal q_eos = - 1.0 * _temperature[_qp] * dp_dT * J_dot / _J[_qp];
 
   //contract with cauchy stress and save both values
@@ -383,8 +390,9 @@ Real
 ADPBXStress::computeReferenceResidual(const ADReal & effective_trial_stress,
                                                               const ADReal & scalar)
 {
+
   return MetaPhysicL::raw_value(
-      effective_trial_stress - _Y_clamped * _mixture_shear * scalar * _be_bar[_qp].trace());
+      effective_trial_stress - _effective_shear * scalar * _be_bar[_qp].trace());
 }
 
 ADReal
@@ -397,7 +405,7 @@ ADPBXStress::computeResidual(const ADReal & effective_trial_stress,
   
   //here we require an exact coupling between Y and the defradation of the yield surface
   //we coupld possibly define degradation functions as in phase field
-  return (effective_trial_stress - _Y_clamped * _mixture_shear * scalar * _be_bar[_qp].trace() - _H[_qp]);
+  return (effective_trial_stress - _effective_shear * scalar * _be_bar[_qp].trace() - _H[_qp]);
 }
 
 ADReal
@@ -408,7 +416,7 @@ ADPBXStress::computeDerivative(const ADReal & /*effective_trial_stress*/,
   _ep[_qp] = _ep_old[_qp] + scalar;
   _flow_stress_material->computePropertiesAtQp(_qp);
 
-  return (- _Y_clamped * _mixture_shear * _be_bar[_qp].trace() - _dH[_qp]);
+  return (- _effective_shear * _be_bar[_qp].trace() - _dH[_qp]);
 }
 
 ADReal
@@ -464,5 +472,7 @@ ADPBXStress::exp(const ADRankTwoTensor & x){
 
   return Q * expDiag * Q.transpose();
 }
+
+//add a function to compute the exact sound speed
 
 //END

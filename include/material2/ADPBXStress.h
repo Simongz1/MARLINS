@@ -145,6 +145,12 @@ protected:
   const unsigned int _ndisp;
   std::vector<const ADVariableGradient *> _grad_disp;
   ADReal _Y_clamped;
+
+  //other members
+  ADReal _RDX_shear;
+  ADReal _binder_shear;
+  ADReal _effective_shear;
+  const ADRankTwoTensor _I;
 private:
     //nothing here
     //hi
