@@ -432,7 +432,7 @@ nu = 0.24
     type = ADDerivativeParsedMaterial
     derivative_order = 2
     coupled_variables = 'temperature dirac_switch_react'
-    material_property_names = 'E1 R logZ1'
+    material_property_names = 'E1 R logZ1 time_react'
     expression = 'if(dirac_switch_react > time_react, 1e-9 * exp(logZ1) * exp(- E1 / (R * temperature)), 0.0)'
     property_name = 'r1'
   []
@@ -440,7 +440,7 @@ nu = 0.24
     type = ADDerivativeParsedMaterial
     derivative_order = 2
     coupled_variables = 'temperature dirac_switch_react'
-    material_property_names = 'E2 R logZ2'
+    material_property_names = 'E2 R logZ2 time_react'
     expression = 'if(dirac_switch_react > time_react, 1e-9 * exp(logZ2) * exp(- E2 / (R * temperature)), 0.0)'
     property_name = 'r2'
   []
