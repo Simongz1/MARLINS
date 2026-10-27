@@ -21,7 +21,6 @@ nu = 0.24
 
   #for microstructure
   bulk_grains = {BULK_GRAINS}
-  euler_angles = false
 
   dirac_tolerance = 0
   use_mixture = {USE_MIXTURE}
@@ -34,14 +33,11 @@ nu = 0.24
   fraction_csv = fraction_csv
   use_tabular_time = {TABULAR_TIME}
   use_distributions = {DISTRIBUTIONS}
-  consistent_tau = true
 
   use_loaded_microstructure = {LOADED_MICROSTRUCTURE}
   use_complete_burn = {COMPLETE_BURN}
 
   #testing bulk grains
-  n_cracks = 1 #unused
-  l_cracks = 1 #unused
   n_pores = {N_PORES}
   pore_probability = {POROSITY} # default is 0.01
 
@@ -728,18 +724,6 @@ nu = 0.24
     family = MONOMIAL
   []
   [grainID]
-    order = CONSTANT
-    family = MONOMIAL
-  []
-  [euler1]
-    order = CONSTANT
-    family = MONOMIAL
-  []
-  [euler2]
-    order = CONSTANT
-    family = MONOMIAL
-  []
-  [euler3]
     order = CONSTANT
     family = MONOMIAL
   []
