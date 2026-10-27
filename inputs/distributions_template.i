@@ -1,3 +1,7 @@
+# Units: micrometers (um), nanoseconds (ns), gigapascals (GPa), kelvin (K).
+# Velocity: um/ns (= km/s); density: SI kg/m^3 * 1e-3.
+# Specific energy and specific heat: SI values * 1e-6.
+# Thermal conductivity: SI W/(m K) * 1e-6; reaction rates: ns^-1.
 #try to keep these fixed
 E = 20.76
 nu = 0.24
@@ -38,7 +42,7 @@ nu = 0.24
   #testing bulk grains
   n_cracks = 1 #unused
   l_cracks = 1 #unused
-  n_pores = 10000000
+  n_pores = {N_PORES}
   pore_probability = {POROSITY} # default is 0.01
 
   bulk_RDX_fraction = 1. ##saturated RDX
@@ -46,11 +50,11 @@ nu = 0.24
   range_pore = '101 103' #keep constant
 
   ##csv data assignment
-  csv_shock_pore = '../csv/shock_pore.csv'
-  csv_react_pore = '../csv/react_pore.csv'
-  csv_times_pore = '../csv/time_pore.csv'
-  csv_density_pore = '../csv/density_pore.csv'
-  csv_fraction_pore = '../csv/fraction_pore.csv'
+  csv_shock_pore = '{CSV_DIR}/shock_pore.csv'
+  csv_react_pore = '{CSV_DIR}/react_pore.csv'
+  csv_times_pore = '{CSV_DIR}/time_pore.csv'
+  csv_density_pore = '{CSV_DIR}/density_pore.csv'
+  csv_fraction_pore = '{CSV_DIR}/fraction_pore.csv'
 
   #use old time formulation
   use_gating = {USE_GATING} 
@@ -228,21 +232,21 @@ nu = 0.24
     variable = temperature
     material_property = scaled_chem
     scalar = 1 #can switch sign
-    use_displaced_mesh = {MECHANICS_DISPLACED}
+    use_displaced_mesh = false
   []
   [PlasticHeat]
     type = ADMatHeatSource
     variable = temperature
     material_property = scaled_plastic
     scalar = 1 #to assign sign
-    use_displaced_mesh = {MECHANICS_DISPLACED}
+    use_displaced_mesh = false
   []
   [ElasticHeat]
     type = ADMatHeatSource
     variable = temperature
     material_property = scaled_elastic
     scalar = 1
-    use_displaced_mesh = {MECHANICS_DISPLACED}
+    use_displaced_mesh = false
   []
 
 	[dY1_dt]
@@ -429,7 +433,7 @@ nu = 0.24
     derivative_order = 2
     coupled_variables = 'temperature dirac_switch_react'
     material_property_names = 'E1 R logZ1'
-    expression = 'if(dirac_switch_react > 1.0, exp(logZ1) * exp(- E1 / (R * temperature)), 0.0)'
+    expression = 'if(dirac_switch_react > time_react, 1e-9 * exp(logZ1) * exp(- E1 / (R * temperature)), 0.0)'
     property_name = 'r1'
   []
   [r2]
@@ -437,7 +441,7 @@ nu = 0.24
     derivative_order = 2
     coupled_variables = 'temperature dirac_switch_react'
     material_property_names = 'E2 R logZ2'
-    expression = 'if(dirac_switch_react > 1.0, exp(logZ2) * exp(- E2 / (R * temperature)), 0.0)'
+    expression = 'if(dirac_switch_react > time_react, 1e-9 * exp(logZ2) * exp(- E2 / (R * temperature)), 0.0)'
     property_name = 'r2'
   []
 
@@ -464,20 +468,20 @@ nu = 0.24
     type = ADDerivativeParsedMaterial
     derivative_order = 2
     material_property_names = 'a1 b1 MW current_density'
-    constant_names = 'kcal2J'
-    constant_expressions = '4184'
+    constant_names = 'kcal2specific_energy'
+    constant_expressions = '4184e-6'
     coupled_variables = 'temperature'
-    expression = 'current_density * kcal2J / MW * (a1 + if(temperature >= 1736.3, b1 * (temperature - 1736.3), 0.0))'
+    expression = 'current_density * kcal2specific_energy / MW * (a1 + if(temperature >= 1736.3, b1 * (temperature - 1736.3), 0.0))'
     property_name = 'Q1'
   []
   [Q2]
     type = ADDerivativeParsedMaterial
     derivative_order = 2
     material_property_names = 'a2 b2 MW current_density'
-    constant_names = 'kcal2J'
-    constant_expressions = '4184'
+    constant_names = 'kcal2specific_energy'
+    constant_expressions = '4184e-6'
     coupled_variables = 'temperature'
-    expression = 'current_density * kcal2J / MW * (a2 + if(temperature >= 1736.3, b2 * (temperature - 1736.3), 0.0))'
+    expression = 'current_density * kcal2specific_energy / MW * (a2 + if(temperature >= 1736.3, b2 * (temperature - 1736.3), 0.0))'
     property_name = 'Q2'
   []
   
@@ -515,16 +519,18 @@ nu = 0.24
   []
 
   [scaled_elastic]
-    type = ADParsedMaterial
-    material_property_names = 'HS_elastic {HEAT_DENSITY} specific_heat'
-    expression = 'HS_elastic / ({HEAT_DENSITY} * specific_heat)'
+    type = ADDerivativeParsedMaterial
+    material_property_names = 'HS_elastic {HEAT_DENSITY} specific_heat time_react'
+    coupled_variables = 'temperature dirac_switch_react'
+    expression = 'if(dirac_switch_react > time_react, HS_elastic / ({HEAT_DENSITY} * specific_heat), 0.0)'
     property_name = scaled_elastic
   []
 
   [scaled_plastic]
-    type = ADParsedMaterial
-    material_property_names = 'HS_plastic {HEAT_DENSITY} specific_heat'
-    expression = 'HS_plastic / ({HEAT_DENSITY} * specific_heat)'
+    type = ADDerivativeParsedMaterial
+    material_property_names = 'HS_plastic {HEAT_DENSITY} specific_heat time_react'
+    coupled_variables = 'temperature dirac_switch_react'
+    expression = 'if(dirac_switch_react > time_react, HS_plastic / ({HEAT_DENSITY} * specific_heat), 0.0)'
     property_name = scaled_plastic
   []
 
@@ -554,7 +560,7 @@ nu = 0.24
   [ADplate_const]
   	type = ADGenericConstantMaterial
   	prop_names = 'specific_heat thermal_conductivity'
-  	prop_values = '2355.592 0.361' 
+  	prop_values = '2355.592e-6 0.361e-6' 
   []
 
   [k_corrected]
@@ -649,16 +655,16 @@ nu = 0.24
     density_i = density_i	
 
 	  ###########CSV data
-    csv_shock = '../csv/shock_new.csv'
-    csv_react = '../csv/react_new.csv'
-    csv_times = '../csv/time_new.csv'
+    csv_shock = '{CSV_DIR}/shock_new.csv'
+    csv_react = '{CSV_DIR}/react_new.csv'
+    csv_times = '{CSV_DIR}/time_new.csv'
 
     ##variable that stores density from csv
     density_csv = density_csv
 
     #############
-      csv_unreacted = '../csv/unreacted.csv'
-      csv_reacted = '../csv/reacted.csv'
+      csv_unreacted = '{CSV_DIR}/unreacted.csv'
+      csv_reacted = '{CSV_DIR}/reacted.csv'
     {OUTPUTS}
   []
 
@@ -670,19 +676,19 @@ nu = 0.24
     type = PolycrystalDensityAux
     variable = density_csv
     execute_on = INITIAL
-      csv_density = '../csv/densities_new.csv'
+      csv_density = '{CSV_DIR}/densities_new.csv'
     density_i = density_i
-    density_scaling = 1e-9 #for nm, ns, GPa
+    density_scaling = 1e-3 # kg/m^3 to um-ns-GPa density
 
     ##testing bulk grains
   
-    bulk_RDX_density = {BULK_DENSITY} #provided in g/cm³
+    bulk_RDX_density = {BULK_DENSITY} # supplied in kg/m^3; density_scaling applied by AuxKernel
   []
   [readVoronoiRDXFraction]
     type = PolycrystalFractionAux
     variable = fraction_csv
     execute_on = 'INITIAL TIMESTEP_END'
-      csv_fraction = '../csv/fractions_new.csv'
+      csv_fraction = '{CSV_DIR}/fractions_new.csv'
     density_i = density_i  
     bulk_RDX_fraction = 1.
   []
@@ -691,7 +697,7 @@ nu = 0.24
 [UserObjects]
   [voronoi_density]
     type = PolycrystalDensityUO
-    num_grains = 800 #keep this number high enough
+    num_grains = {NUM_GRAINS}
     target_grains = '1'
     range_in = '{PARTICLE_RANGE_SMALL} {PARTICLE_RANGE_LARGE}' #this is for particles
     range_out = '{BINDER_RANGE_SMALL} {BINDER_RANGE_LARGE}' #this is for binder
@@ -704,7 +710,7 @@ nu = 0.24
     sizes_fraction = '{SMALL_PROPORTION} {BIG_PROPORTION}'
 
     ##for fraction assignment
-      csv_fraction = '../csv/fractions_new.csv'
+      csv_fraction = '{CSV_DIR}/fractions_new.csv'
   []
 []
 

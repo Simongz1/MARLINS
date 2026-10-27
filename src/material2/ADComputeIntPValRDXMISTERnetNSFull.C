@@ -531,38 +531,31 @@ ADComputeIntPValRDXMISTERnetNSFull::getTimes(const Real up, const int id, const 
 
 //function for retrieving distribution data
 Real
-ADComputeIntPValRDXMISTERnetNSFull::getDistributionTime(const Real up, const Real predicted_temp){
-  //with the known call up, call the closest lower and upper distributions
-  const Real lower_up = std::floor(10. * up);
-  const Real upper_up = std::ceil(10. * up);
-
-  //scale up
+ADComputeIntPValRDXMISTERnetNSFull::getDistributionTime(const Real up, const Real predicted_temp)
+{
   const Real scaled_up = 10. * up;
+  const int lower_up = static_cast<int>(std::floor(scaled_up));
+  const int upper_up = static_cast<int>(std::ceil(scaled_up));
 
-  //determine whether it is a deflagrated or quenched microstructure
-  const bool deflagrated = predicted_temp > 1000. ? true : false;
+  const std::string appendix =
+      predicted_temp > 1000. ? "_reacted" : "_unreacted";
 
-  //form the names
-  const std::string appendix = deflagrated ? "_reacted" : "_unreacted";
-  const DistributionName lower_name = std::to_string(static_cast<int>(lower_up)) + appendix;
-  const DistributionName upper_name = std::to_string(static_cast<int>(upper_up)) + appendix;
-
-  //retrieve the lower and upper distributions
+  const DistributionName lower_name = std::to_string(lower_up) + appendix;
   const Distribution & lower_distribution = getDistributionByName(lower_name);
-  const Distribution & upper_distribution = getDistributionByName(upper_name);
 
-  //seed number to call both distributions
   const Real seed = MooseRandom::rand();
-
-  //evaluate the distribution with a randomly generated number
   const Real lower_time = lower_distribution.quantile(seed);
+
+  // Exactly on a velocity grid point: no interpolation needed.
+  if (lower_up == upper_up)
+    return lower_time;
+
+  const DistributionName upper_name = std::to_string(upper_up) + appendix;
+  const Distribution & upper_distribution = getDistributionByName(upper_name);
   const Real upper_time = upper_distribution.quantile(seed);
 
-  //interpolate based on distance
-  const Real dist = (scaled_up - lower_up) / (upper_up - lower_up);
-  const Real interpolated_value = lower_time + (dist) * (upper_time - lower_time);
-
-  return interpolated_value;
+  const Real weight = (scaled_up - lower_up) / (upper_up - lower_up);
+  return lower_time + weight * (upper_time - lower_time);
 }
 
 //we can define an explicit function that computes the interval of u_p where we are

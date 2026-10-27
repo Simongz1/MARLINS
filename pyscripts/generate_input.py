@@ -17,12 +17,22 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-#provide dataframe with all the data for distributions
-df = pd.read_csv('./csv/distributions.csv')
+# Distribution data belongs to the generator, independent of launch directory.
+script_dir = Path(__file__).resolve().parent
+df = pd.read_csv(script_dir / 'csv' / 'distributions.csv')
 config_path = args.config
 
 with config_path.open('r') as f:
     config = yaml.safe_load(f) or {}
+
+# Resolve relative CSV directories against the YAML file's directory.
+# Without an override, use the generator's shared CSV directory.
+csv_dir = Path(config['csv_dir']).expanduser() if 'csv_dir' in config else script_dir / 'csv'
+if not csv_dir.is_absolute():
+    csv_dir = config_path.resolve().parent / csv_dir
+csv_dir = csv_dir.resolve()
+if not csv_dir.is_dir():
+    parser.error(f"CSV directory does not exist: {csv_dir}")
 
 def truthy(value):
     return value if isinstance(value, bool) else str(value).strip().lower() in {'true', 'yes', 'y', '1'}
@@ -40,6 +50,10 @@ vel = float(config.get('vel', config.get('impactVelocity', 1.75)))
 elemsize = np.array(config.get('elemsize', config.get('elementSize', [1.0, 1.9])), dtype=float)
 check_frec = config.get('check_frec', config.get('checkFrec', 2000))
 full_outputs = config.get('full_outputs', 'YES')
+num_grains = int(config.get('num_grains', 800))
+n_pores = int(config.get('n_pores', 10000000))
+if num_grains <= 0 or n_pores < 0:
+    parser.error("num_grains must be positive and n_pores must be nonnegative")
 
 # Configuration controls integration geometry and the stress measure together.
 configuration = str(config.get('configuration', 'current')).strip().lower()
@@ -397,6 +411,9 @@ z_bc = """[z_fix]
 
 replacements = {
     'MESH': mesh_block.replace('[Mesh]\n', "[Mesh]\n  displacements = '{DISPLACEMENTS}'\n", 1),
+    'NUM_GRAINS': str(num_grains),
+    'N_PORES': str(n_pores),
+    'CSV_DIR': str(csv_dir),
     'STRESS_MEASURE': stress_measure,
     'RECONSTRUCTION': reconstruction,
     'MECHANICS_DISPLACED': mechanics_displaced,
@@ -440,6 +457,11 @@ elif (pbx == 'LOADED'):
 
 else:
     final_name = f"{dim}_up{format_shock_velocity(vel)}_type{pbx}_perp{elem_perp_1}_shock{elem_shock_dir}_poro{particle_poro if pbx == 'PBX' else 0}_time{'distr' if truthy(use_distributions) else 'tabular'}_binder{binder_width}_{int(binder_range[0])}_{int(binder_range[-1])}" 
+
+element_count = elem_shock_dir * elem_perp_1 * elem_perp_2
+print(f'Mesh: {element_count:,} elements; requested grain centers: {num_grains:,}', flush=True)
+print(f'Pores: {"disabled" if n_pores == 0 else f"up to {n_pores:,} per grain"}', flush=True)
+print('Input generation does not execute microstructure initialization.', flush=True)
 
 run_dir = Path(f'./DIR{final_name}')
 run_dir.mkdir(parents=True, exist_ok=True)
@@ -515,6 +537,8 @@ if truthy(gen_and_run):
 dump_name = f'./DIR{final_name}/DUMP{final_name}.txt'
 with open(dump_name, 'w') as f:
     f.write(f"Simulation Dimension: {dim}\n")
+    f.write(f"Requested Grain Centers: {num_grains}\n")
+    f.write(f"Maximum Pores per Grain: {n_pores}\n")
     f.write(f"Configuration: {configuration}\n")
     f.write(f"Stress Measure: {stress_measure}\n")
     f.write(f"Deformation Gradient Reconstruction: {reconstruction}\n")
