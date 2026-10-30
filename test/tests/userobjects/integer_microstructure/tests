@@ -1,0 +1,42 @@
+[Tests]
+  [integer_readers_amr]
+    type = RunApp
+    input = integer_ids.i
+    requirement = 'Integer microstructure readers shall preserve original-region IDs during refinement and coarsening.'
+  []
+  [check_integer_readers]
+    type = RunCommand
+    command = 'python3 check.py'
+    prereq = integer_readers_amr
+    requirement = 'Adaptive integer MicroID lookup shall preserve physical density and fraction assignments.'
+  []
+  [invalid_id_diagnostic]
+    type = RunException
+    input = integer_ids.i
+    cli_args = "UserObjects/microstructure/range_out='93 93'"
+    expect_err = 'microstructure_id=93'
+    requirement = 'Invalid categorical IDs shall report their integer ID and lookup context instead of clamping to a different material.'
+  []
+  [displaced_integer_readers_amr]
+    type = RunApp
+    input = displaced_ids.i
+    requirement = 'Displaced-mesh integer readers shall use authoritative reference-region labels during AMR.'
+  []
+  [check_displaced_integer_readers]
+    type = RunCommand
+    command = 'python3 check.py displaced_ids_out.csv'
+    prereq = displaced_integer_readers_amr
+    requirement = 'Displaced integer MicroID lookup shall preserve physical assignments during repeated adaptation.'
+  []
+  [legacy_integer_readers_amr]
+    type = RunApp
+    input = legacy_ids.i
+    requirement = 'The legacy-compatible integer initializer shall support repeated refinement and coarsening.'
+  []
+  [check_legacy_integer_readers]
+    type = RunCommand
+    command = 'python3 check.py legacy_ids_out.csv'
+    prereq = legacy_integer_readers_amr
+    requirement = 'Legacy-compatible integer labels shall preserve density and fraction values across AMR.'
+  []
+[]
