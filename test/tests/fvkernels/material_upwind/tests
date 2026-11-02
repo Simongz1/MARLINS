@@ -1,0 +1,35 @@
+[Tests]
+  [stationary_contact]
+    type = RunApp
+    input = stationary.i
+    min_parallel = 2
+    max_parallel = 4
+    requirement = 'Material-speed upwind transport shall preserve a stationary density discontinuity across parallel partitions.'
+  []
+  [check_contact]
+    type = RunCommand
+    command = 'python3 check.py'
+    prereq = stationary_contact
+    requirement = 'The stationary-contact density error shall remain below roundoff tolerance.'
+  []
+  [moving_upwind]
+    type = RunApp
+    input = moving.i
+    cli_args = 'FVKernels/transport/reconstruction=upwind Outputs/file_base=moving_first_out'
+    max_parallel = 1
+    requirement = 'The material flux shall support first-order upwind reconstruction as an accuracy baseline.'
+  []
+  [moving_minmod]
+    type = RunApp
+    input = moving.i
+    cli_args = 'Outputs/file_base=moving_minmod_out'
+    max_parallel = 1
+    requirement = 'The material flux shall support limited higher-order reconstruction of a moving contact.'
+  []
+  [check_moving]
+    type = RunCommand
+    command = 'python3 check_moving.py'
+    prereq = 'moving_upwind moving_minmod'
+    requirement = 'Limited reconstruction shall reduce the moving-contact error relative to first-order upwind.'
+  []
+[]

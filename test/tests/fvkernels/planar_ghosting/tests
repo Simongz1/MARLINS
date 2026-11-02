@@ -1,0 +1,9 @@
+[Tests]
+  [parallel_neighbor_gradients]
+    type = RunApp
+    input = parallel.i
+    min_parallel = 2
+    max_parallel = 4
+    requirement = 'Neighbor-cell gradient fluxes shall assemble and solve across MPI partitions without missing ghost data.'
+  []
+[]

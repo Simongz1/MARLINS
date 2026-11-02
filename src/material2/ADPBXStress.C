@@ -190,6 +190,8 @@ ADPBXStress::computeQpStress()
   _Y_clamped = _Yinitial[_qp] > ADReal(phi) ? ADReal(phi) :
                 (_Yinitial[_qp] < ADReal(0.0) ? ADReal(0.0) : _Yinitial[_qp]);
 
+  const ADReal remaining = phi > 0.0 ? _Y_clamped / phi : ADReal(0.0);
+
   //compute the shear modulus from bulk and poisson
   _RDX_shear = (3.0 * _RDX_bulk[_qp]) * (1.0 - 2.0 * _RDX_poisson[_qp]) / (2.0 + 2.0 * _RDX_poisson[_qp]);
   _binder_shear = (3.0 * _binder_bulk[_qp]) * (1.0 - 2.0 * _binder_poisson[_qp]) / (2.0 + 2.0 * _binder_poisson[_qp]);
@@ -246,7 +248,7 @@ ADPBXStress::computeQpStress()
   
   // Use the same phase-weighted shear coefficient for stress and radial return.
   // Reacted RDX carries no deviatoric stress; binder retains its shear response.
-  _effective_shear = _Y_clamped * _RDX_shear + (1.0 - phi) * _binder_shear / J;
+  _effective_shear = remaining * (phi * _RDX_shear + (1.0 - phi) * _binder_shear / J);
   const ADRankTwoTensor s_trial = _effective_shear * _be_bar[_qp].deviatoric();
 
   const ADReal snorm_trial = MetaPhysicL::sqrt(s_trial.doubleContraction(s_trial));
@@ -268,10 +270,8 @@ ADPBXStress::computeQpStress()
   _be_bar[_qp] -= 2. / 3. * delta_ep * _be_bar[_qp].trace() * _Np[_qp];
 
   // RDX contribution is already weighted by its remaining phase fraction.
-  const ADRankTwoTensor s_RDX_corrected =
-      _Y_clamped * _RDX_shear * _be_bar[_qp].deviatoric();
-  const ADRankTwoTensor s_binder_corrected =
-      (_binder_shear / J) * _be_bar[_qp].deviatoric();
+  const ADRankTwoTensor s_RDX_corrected = _Y_clamped * _RDX_shear * _be_bar[_qp].deviatoric();
+  const ADRankTwoTensor s_binder_corrected = remaining * (_binder_shear / J) * _be_bar[_qp].deviatoric();
 
   //compute plastic strain rate from radial return increment
   _ep_dot[_qp] = delta_ep / _dt;
