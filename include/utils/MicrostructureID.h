@@ -33,11 +33,10 @@ tableValue(const std::vector<Real> & values,
            dof_id_type index,
            const libMesh::Elem & elem,
            dof_id_type micro_id,
-           Real time,
            const std::string & table)
 {
   if (index >= values.size())
-    mooseError("Integer microstructure lookup failed: table=", table, ", time=", time,
+    mooseError("Integer microstructure lookup failed: table=", table,
                ", element=", elem.id(), ", original_element=", region(elem).id(),
                ", microstructure_id=", micro_id, ", index=", index,
                ", table_size=", values.size());

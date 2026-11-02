@@ -61,10 +61,10 @@ PolycrystalIntegerFractionAux::computeValue()
     if (is_pore)
       // Raw pore CSV rows include the velocity in column zero, hence the +1 offset.
       return MicrostructureID::tableValue(first_col_pore, id - _range_pore.front() + 1,
-                                          *_current_elem, id, _t, _csv_fraction_pore);
+                                          *_current_elem, id, _csv_fraction_pore);
     if (id == _bulk_MicroID)
       return _bulk_RDX_fraction;
-    return MicrostructureID::tableValue(first_col, id, *_current_elem, id, _t, _csv_fraction);
+    return MicrostructureID::tableValue(first_col, id, *_current_elem, id, _csv_fraction);
 }
 
 std::vector<std::vector<Real>>

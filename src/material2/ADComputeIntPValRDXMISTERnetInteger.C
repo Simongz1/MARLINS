@@ -4,6 +4,9 @@
 #include <limits>
 #include "MooseRandom.h"
 
+//call the util functions for reading CSV data
+#include "MISTnetXUtils.h"
+
 registerMooseObject("mlApp", ADComputeIntPValRDXMISTERnetInteger);
 
 InputParameters
@@ -125,37 +128,37 @@ ADComputeIntPValRDXMISTERnetInteger::ADComputeIntPValRDXMISTERnetInteger(
   }
 
   //make the total CSV local
-  const auto csv_total_shock = readCSV(_csv_shock);
-  const auto csv_total_react = readCSV(_csv_react);
+  const auto csv_total_shock = MISTnetXUtils::readCSV(_csv_shock);
+  const auto csv_total_react = MISTnetXUtils::readCSV(_csv_react);
   
   if (_use_tabular_time){
-    _csv_total_times = readCSV(_csv_times);
+    _csv_total_times = MISTnetXUtils::readCSV(_csv_times);
   }
 
   //read all the csv structures that are needed
-  const auto csv_total_shock_pore = readCSV(_csv_shock_pore);
-  const auto csv_total_react_pore = readCSV(_csv_react_pore);
-  const auto csv_total_times_pore = readCSV(_csv_times_pore);
-  const auto csv_total_pu = readCSV(_csv_unreacted);
-  const auto csv_total_pr = readCSV(_csv_reacted);
+  const auto csv_total_shock_pore = MISTnetXUtils::readCSV(_csv_shock_pore);
+  const auto csv_total_react_pore = MISTnetXUtils::readCSV(_csv_react_pore);
+  const auto csv_total_times_pore = MISTnetXUtils::readCSV(_csv_times_pore);
+  const auto csv_total_pu = MISTnetXUtils::readCSV(_csv_unreacted);
+  const auto csv_total_pr = MISTnetXUtils::readCSV(_csv_reacted);
 
   //use the csv function to form the velocity vectors
   _up_values = formVelocityVector(csv_total_shock);
   _up_values_pore = formVelocityVector(csv_total_shock_pore);
 
   //retrieve nanoPBX csv data using the new helper function
-  _temperature_values_shock = formData(csv_total_shock);
-  _temperature_values_react = formData(csv_total_react);
+  _temperature_values_shock = MISTnetXUtils::formData(csv_total_shock);
+  _temperature_values_react = MISTnetXUtils::formData(csv_total_react);
 
   if (_use_tabular_time){
-    _time_values = formData(_csv_total_times);
+    _time_values = MISTnetXUtils::formData(_csv_total_times);
 
   }
 
   //retrieve csv data for pore
-  _temperature_values_shock_pore = formData(csv_total_shock_pore);
-  _temperature_values_react_pore = formData(csv_total_react_pore);
-  _time_values_pore = formData(csv_total_times_pore);
+  _temperature_values_shock_pore = MISTnetXUtils::formData(csv_total_shock_pore);
+  _temperature_values_react_pore = MISTnetXUtils::formData(csv_total_react_pore);
+  _time_values_pore = MISTnetXUtils::formData(csv_total_times_pore);
 }
 
 void 
@@ -356,186 +359,52 @@ ADComputeIntPValRDXMISTERnetInteger::computeQpProperties()
 //make interpolation term wise 
 Real
 ADComputeIntPValRDXMISTERnetInteger::interpolation(const std::vector<Real> & A, const std::vector<Real> & B, const Real t, const unsigned int index){
-  Real value;
-  const auto id = MicrostructureID::get(*_fe_problem.mesh().elemPtr(_current_elem->id()), _micro_id_index);
-  value = (1. - t) * MicrostructureID::tableValue(A, index, *_current_elem, id, _t, "predictor lower row") +
-          t * MicrostructureID::tableValue(B, index, *_current_elem, id, _t, "predictor upper row");
-  return value;
+  return MISTnetXUtils::interpolation(A, B, t, index, *_current_elem, _micro_id_index);
 }
 
-//helper function to read CSV file
-std::vector<std::vector<Real>>
-ADComputeIntPValRDXMISTERnetInteger::readCSV(const std::string csv_file_name){
-  std::ifstream file(csv_file_name);
-  if (!file.is_open()){
-    mooseError("can't open CSV file");
-  }
-  std::vector<std::vector<Real>> data;
-  std::string line;
-  while (std::getline(file, line)){
-    std::vector<Real> row;
-    std::stringstream ss(line);
-    std::string value;
-
-    while (std::getline(ss, value, ',')){
-      try{
-        row.push_back(static_cast<Real>(std::stod(value)));
-      }
-      catch (const std::invalid_argument &e){
-        mooseError("Invalid value in CSV file: " + value);
-      }
-    }
-    data.push_back(row);
-  }
-  file.close();
-  return data;
-}
-
-//helper function to retrieve temperatures
+// Keep the interval state used by getTimes while delegating temperature lookup.
 std::pair<Real, Real>
-ADComputeIntPValRDXMISTERnetInteger::getTemperatures(const Real up, const int id, const std::string phase){
+ADComputeIntPValRDXMISTERnetInteger::getTemperatures(const Real up,
+                                                  const int id,
+                                                  const std::string phase)
+{
+  _interval = MISTnetXUtils::computeInterval(up, _up_values);
+  _interval_pore = MISTnetXUtils::computeInterval(up, _up_values_pore);
+  const auto & velocities = phase == "pore" ? _up_values_pore : _up_values;
+  const auto interval = static_cast<unsigned int>(phase == "pore" ? _interval_pore : _interval);
+  _ratio = (up - velocities[interval]) / (velocities[interval + 1] - velocities[interval]);
 
-  //forward declaration
-  Real lower_bound, upper_bound, interval_number;
-
-  //change these to null pointers
-  const std::vector<Real> * lower_temps_shock = nullptr;
-  const std::vector<Real> * upper_temps_shock = nullptr;
-  const std::vector<Real> * lower_temps_react = nullptr;
-  const std::vector<Real> * upper_temps_react = nullptr;
-
-  //to use the same interval, call it here
-  _interval = computeInterval(up, _up_values);
-  _interval_pore = computeInterval(up, _up_values_pore);
-
-  //here we need to branch based on the phase
-  if (phase == "binder"){
-    //direct assignment of the shock temperatures
-    //dereference the pointers here to assign value
-    lower_temps_shock = &_temperature_values_shock[_interval];
-    upper_temps_shock = &_temperature_values_shock[_interval + 1];
-
-    //direct assignment of the reaction temperatures
-    lower_temps_react = &_temperature_values_react[_interval];
-    upper_temps_react = &_temperature_values_react[_interval + 1];
-
-    //and also assign bounds for interpolation
-    lower_bound = _up_values[_interval];
-    upper_bound = _up_values[_interval + 1];
-  }
-  else if (phase == "pore"){
-    //direct assignment of shock temperatures
-    lower_temps_shock = &_temperature_values_shock_pore[_interval_pore];
-    upper_temps_shock = &_temperature_values_shock_pore[_interval_pore + 1];
-
-    //direct assignment of reaction temperatures
-    lower_temps_react = &_temperature_values_react_pore[_interval_pore];
-    upper_temps_react = &_temperature_values_react_pore[_interval_pore + 1];
-
-    //assign bounds
-    lower_bound = _up_values_pore[_interval_pore];
-    upper_bound = _up_values_pore[_interval_pore + 1];
-  }
-  else if (phase == "bulk"){
-    //direct assignment of shock temperatures
-    lower_temps_shock = &_temperature_values_shock[_interval];
-    upper_temps_shock = &_temperature_values_shock[_interval + 1];
-
-    //direct assingmnet of reaction temperatures
-    lower_temps_react = &_temperature_values_react[_interval];
-    upper_temps_react = &_temperature_values_react[_interval + 1];
-
-    //assign bounds
-    lower_bound = _up_values[_interval];
-    upper_bound = _up_values[_interval + 1];
-  }
-
-  //this assigns the ratio
-  Real t = (up - lower_bound) / (upper_bound - lower_bound);
-
-  //test: use this same t to interpolate time
-  _ratio = t;
-
-  Real temp_shock;
-  Real temp_react;
-
-  if (phase == "binder"){ //traditional branch
-    temp_shock = interpolation(*lower_temps_shock, *upper_temps_shock, t, id);
-    temp_react = interpolation(*lower_temps_react, *upper_temps_react, t, id);
-  }
-
-  if (phase == "pore"){
-    //the pore microstructures are 101, 102, 103, so we need to subtract to access the data
-    int id_pore = static_cast<int>(std::round(id - _range_pore.front()));
-
-    // Do not clamp IDs into a different physical microstructure; interpolation checks bounds.
-    
-    //now access pore data
-    temp_shock = interpolation(*lower_temps_shock, *upper_temps_shock, t, id_pore);
-    temp_react = interpolation(*lower_temps_react, *upper_temps_react, t, id_pore);
-  }
-  if (phase == "bulk"){
-    //bulk will preserve the nanoPBX data, but will be called all at an insensitive microstructure
-    int id_bulk = _bulk_sensitivity; //the most insensitive, this can be tuned until bulk data is available
-    
-    //now access bulk data
-    temp_shock = interpolation(*lower_temps_shock, *upper_temps_shock, t, id_bulk);
-    temp_react = interpolation(*lower_temps_react, *upper_temps_react, t, id_bulk);
-  }
-
-  //make the return type consistent
-  return std::make_pair(temp_shock, temp_react);
+  return MISTnetXUtils::getTemperatures(up,
+                                      id,
+                                      phase,
+                                      _up_values,
+                                      _up_values_pore,
+                                      _temperature_values_shock,
+                                      _temperature_values_react,
+                                      _temperature_values_shock_pore,
+                                      _temperature_values_react_pore,
+                                      std::make_pair(static_cast<Real>(_range_pore.front()),
+                                                     static_cast<Real>(_range_pore.back())),
+                                      _current_elem,
+                                      _micro_id_index,
+                                      _bulk_sensitivity);
 }
 
 Real
-ADComputeIntPValRDXMISTERnetInteger::getTimes(const Real up, const int id, const std::string phase){
-
-  //create times lower and upper
-  const std::vector<Real> * lower_times;
-  const std::vector<Real> * upper_times;
-
-  //define lower and upper times
-  //here we account for the phase of the element
-
-  if (phase == "binder"){
-    //traditional branch
-    lower_times = &_time_values[_interval];
-    upper_times = &_time_values[_interval + 1];
-  }
-  if (phase == "pore"){
-    //here we use the pore time values
-    lower_times = &_time_values_pore[_interval_pore];
-    upper_times = &_time_values_pore[_interval_pore + 1];
-  }
-  if (phase == "bulk"){
-    //preserve base nanoPBX
-    lower_times = &_time_values[_interval];
-    upper_times = &_time_values[_interval + 1];
-  }
-
-  //interpolate based on previously computed interval and balance number
-
-  //return based on microstructures
-  Real time_value;
-
-  if (phase == "binder"){
-    time_value = interpolation(*lower_times, *upper_times, _ratio, id);
-  }
-
-  if (phase == "pore"){
-    const int id_pore = id - static_cast<int>(_range_pore.front());
-    const Real pore_ratio = (up - _up_values_pore[_interval_pore]) /
-                            (_up_values_pore[_interval_pore + 1] - _up_values_pore[_interval_pore]);
-    time_value = interpolation(*lower_times, *upper_times, pore_ratio, id_pore);
-  }
-
-  if (phase == "bulk"){
-    int id_bulk = _bulk_sensitivity;
-    time_value = interpolation(*lower_times, *upper_times, _ratio, id_bulk);
-  }
-
-  //return whatever value went through
-  return time_value;
+ADComputeIntPValRDXMISTERnetInteger::getTimes(const Real up, const int id, const std::string phase)
+{
+  return MISTnetXUtils::getTimes(up,
+                               id,
+                               phase,
+                               _up_values,
+                               _up_values_pore,
+                               _time_values,
+                               _time_values_pore,
+                               std::make_pair(static_cast<Real>(_range_pore.front()),
+                                              static_cast<Real>(_range_pore.back())),
+                               _current_elem,
+                               _micro_id_index,
+                               _bulk_sensitivity);
 }
 
 //function for retrieving distribution data
@@ -571,40 +440,16 @@ ADComputeIntPValRDXMISTERnetInteger::getDistributionTime(const Real up, const Re
 
 Real
 ADComputeIntPValRDXMISTERnetInteger::computeInterval(const Real up, const std::vector<Real> & up_values){
-  //define value to retunr
-  //dereference the pointer for the vector of up values
-  const std::vector<Real> & up_vals = up_values;
-
-  //iterate
-  Real interval_number = 0.;
-  for (unsigned int i = 1; i < up_vals.size(); ++i){
-    //find the i values where up_call is between the lower and the upper bounds of the interval
-    if (up_vals[i] > up){
-      interval_number = i - 1;
-      break;
-    }
-  }
-  return interval_number;
+  return MISTnetXUtils::computeInterval(up, up_values);
 }
 
 //define a function that forms the vectors neeeded for interpolation
 //this takes vector of vectors and returns the member vector
 
-std::vector<std::vector<Real>>
-ADComputeIntPValRDXMISTERnetInteger::formData(const std::vector<std::vector<Real>> & csv){
-  //form output
-  std::vector<std::vector<Real>> data;
-
-  //iterate
-  for (auto &row : csv){
-    if (row.size() < 2){
-      mooseError("need bigger CSV");
-    }
-  
-    data.emplace_back(row.begin() + 1, row.end());
-  }
-  return data;
-}
+// std::vector<std::vector<Real>>
+// ADComputeIntPValRDXMISTERnetInteger::formData(const std::vector<std::vector<Real>> & csv){
+//   return MISTnetXUtils::formData(csv);
+// }
 
 //also generate a function to form velocity vectors for intepolation
 std::vector<Real>

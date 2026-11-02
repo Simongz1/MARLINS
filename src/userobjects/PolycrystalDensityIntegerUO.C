@@ -407,7 +407,7 @@ PolycrystalDensityIntegerUO::initialSetup(){
     else
     {
       predicted_fraction = MicrostructureID::tableValue(
-          data, micro_id, *elem, micro_id, _t, _csv_fraction);
+          data, micro_id, *elem, micro_id, _csv_fraction);
     }
 
     for (auto dof : dof_indices_Y1)

@@ -112,7 +112,7 @@ protected:
   virtual void initQpStatefulProperties() override;
   virtual void computeQpProperties() override;
   virtual Real interpolation(const std::vector<Real> & A, const std::vector<Real> & B, const Real t, const unsigned int index);
-  virtual std::vector<std::vector<Real>> readCSV(const std::string csv_name);
+  //virtual std::vector<std::vector<Real>> readCSV(const std::string csv_name);
   virtual std::pair<Real, Real> getTemperatures(const Real up, const int id, const std::string phase);
   virtual Real getTimes(const Real up, const int id, const std::string phase);
   virtual Real getDistributionTime(const Real up, const Real predicted_temp);

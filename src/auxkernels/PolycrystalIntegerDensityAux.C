@@ -69,11 +69,11 @@ PolycrystalIntegerDensityAux::computeValue()
     if (is_pore)
       // Raw pore CSV rows include the velocity in column zero, hence the +1 offset.
       pred_density = MicrostructureID::tableValue(first_col_pore, id - _range_pore.front() + 1,
-                                                 *_current_elem, id, _t, _csv_density_pore);
+                                                 *_current_elem, id, _csv_density_pore);
     else if (id == _bulk_MicroID)
       pred_density = _bulk_RDX_density;
     else
-      pred_density = MicrostructureID::tableValue(first_col, id, *_current_elem, id, _t, _csv_density);
+      pred_density = MicrostructureID::tableValue(first_col, id, *_current_elem, id, _csv_density);
     return _density_scaling * pred_density;
 }
 
