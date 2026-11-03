@@ -11,7 +11,9 @@ ADPBXStress::validParams()
   params.addRequiredParam<MaterialName>("flow_stress_material","The material defining the flow stress");
   params.addRequiredParam<Real>("C0", "artificial viscosity C0 parameter");
   params.addRequiredParam<Real>("C1", "artificial viscosity C1 parameter");
-  params.addRequiredParam<Real>("element_size", "element_size");
+  //change element size to variable
+  params.addCoupledVar("element_size", "element_size");
+  //params.addRequiredParam<Real>("element_size", "element_size");
   params.addCoupledVar("Yinitial", "Yinitial");
   // params.addParam<bool>("euler_angles", true, "euler_angles");
   ///////////////add rule of mixture variables
@@ -95,7 +97,7 @@ ADPBXStress::ADPBXStress(
     _rho(getADMaterialProperty<Real>("density")),
     _C0(getParam<Real>("C0")),
     _C1(getParam<Real>("C1")),
-    _Le(getParam<Real>("element_size")),
+    _Le(coupledValue("element_size")),
     _p_unreacted(declareADProperty<Real>("p_unreacted")),
     _p_reacted(declareADProperty<Real>("p_reacted")),
     _p_av(declareADProperty<Real>("p_av")),
@@ -447,7 +449,7 @@ ADPBXStress::computeAVPressure()
   else{
     ADReal P_av;
     ADReal J = _F[_qp].det();
-    ADReal Le = ADReal(_Le);
+    const ADReal Le = _Le[_qp];
 
     P_av = _C0 * _rho[_qp] * (J_dot * MetaPhysicL::abs(J_dot) / MetaPhysicL::pow(J, 2.0)) * MetaPhysicL::pow(Le, 2.0);
     P_av += _C1 * _rho[_qp] * _ss[_qp] * (J_dot / J) * Le;

@@ -82,7 +82,7 @@ protected:
   const ADMaterialProperty<Real> &_rho;
   const Real _C0;
   const Real _C1;
-  const Real _Le;
+  const VariableValue &_Le;
 
   ADMaterialProperty<Real> &_p_unreacted;
   ADMaterialProperty<Real> &_p_reacted;

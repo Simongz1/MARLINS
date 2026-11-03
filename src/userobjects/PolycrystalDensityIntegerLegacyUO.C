@@ -11,6 +11,7 @@ PolycrystalDensityIntegerLegacyUO::validParams()
   InputParameters params = GeneralUserObject::validParams();
   params.addParam<std::string>("microstructure_id_name", "microstructure_id", "Pre-registered extra element integer for legacy density/fraction lookup");
   params.addParam<std::string>("prediction_id_name", "legacy_prediction_id", "Integer label preserving legacy rounded prediction lookup");
+  params.addParam<VariableName>("initial_reactant_variable", "Y1", "Nonlinear field seeded with the initial reactant fraction; conserved FV ICs can subsequently scale it by density");
   params.addRequiredParam<unsigned int>("num_grains", "Number of Voronoi seeds");
   params.addRequiredParam<std::vector<unsigned int>>("target_grains", "target_grains");
   params.addRequiredParam<std::vector<unsigned int>>("range_in", "range_in");
@@ -212,7 +213,7 @@ PolycrystalDensityIntegerLegacyUO::initialSetup(){
   auto & nl_sys = _fe_problem.getNonlinearSystem(0);
   auto & var = sys.getVariable(_tid, "density_i");
   auto & var_grainID = sys.getVariable(_tid, "grainID");
-  auto & var_Y1 = nl_sys.getVariable(_tid, "Y1");
+  auto & var_Y1 = nl_sys.getVariable(_tid, getParam<VariableName>("initial_reactant_variable"));
   const DofMap & dof_map = sys.system().get_dof_map();
   const DofMap & nl_dof_map = nl_sys.system().get_dof_map();
 

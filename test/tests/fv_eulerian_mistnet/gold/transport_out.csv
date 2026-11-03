@@ -1,0 +1,4 @@
+time,clock_mass,mass,target_error,tracer_mass,tracer_moment
+0,0,14.34,0,1.6,2.4
+0.01,0.016,14.34182,0,1.6,2.4016
+0.02,0.032,14.34364,0,1.6,2.4032

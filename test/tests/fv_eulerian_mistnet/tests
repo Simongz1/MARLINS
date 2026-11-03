@@ -1,0 +1,14 @@
+[Tests]
+  [transport]
+    type = CSVDiff
+    input = transport.i
+    csvdiff = transport_out.csv
+    requirement = 'Eulerian FV transport shall move a material tracer, conserve its mass, admit the prescribed inflow mass, and preserve conditional target and clock moments.'
+  []
+  [activation]
+    type = CSVDiff
+    input = activation.i
+    csvdiff = activation_out.csv
+    requirement = 'Accepted Eulerian steps shall activate eligible transported material and populate positive MISTnetX target and duration moments without a stationary cell flag.'
+  []
+[]

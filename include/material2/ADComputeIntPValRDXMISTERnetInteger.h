@@ -117,7 +117,6 @@ protected:
   virtual Real getTimes(const Real up, const int id, const std::string phase);
   virtual Real getDistributionTime(const Real up, const Real predicted_temp);
   virtual Real computeInterval(const Real up, const std::vector<Real> & up_values);
-  virtual std::vector<std::vector<Real>> formData(const std::vector<std::vector<Real>> & csv);
   virtual std::vector<Real> formVelocityVector(const std::vector<std::vector<Real>> & csv);
   virtual ADReal computeUs(const ADReal & up, const std::vector<Real> & coeffs);
 };
